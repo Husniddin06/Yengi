@@ -10,7 +10,7 @@ from aiohttp import web
 
 from config import BOT_TOKEN, ADMIN_ID
 from database.db import init_db, add_user, get_user
-from handlers.user_handlers import user_router
+from handlers.user_handlers import user_router, get_message
 from handlers.admin_handlers import admin_router
 
 # Webhook settings

@@ -1,6 +1,7 @@
 
 import aiosqlite
 import datetime
+import json
 
 DATABASE_NAME = 'smartai_bot.db'
 
@@ -17,7 +18,8 @@ async def init_db():
                 daily_limit INTEGER DEFAULT 10,
                 referred_by INTEGER,
                 referrals_count INTEGER DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                language_code TEXT DEFAULT 'en'
             )
         ''')
         await db.execute('''
@@ -43,13 +45,23 @@ async def init_db():
                 FOREIGN KEY (referred_id) REFERENCES users(id)
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                role TEXT,
+                content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        ''')
         await db.commit()
 
-async def add_user(user_id, username, first_name, last_name, referred_by=None):
+async def add_user(user_id, username, first_name, last_name, language_code, referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute(
-            "INSERT OR IGNORE INTO users (id, username, first_name, last_name, referred_by) VALUES (?, ?, ?, ?, ?)",
-            (user_id, username, first_name, last_name, referred_by)
+            "INSERT OR IGNORE INTO users (id, username, first_name, last_name, language_code, referred_by) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, username, first_name, last_name, language_code, referred_by)
         )
         await db.commit()
 
@@ -174,3 +186,25 @@ async def get_user_by_id(user_id):
         user = await cursor.fetchone()
         return dict(user) if user else None
 
+async def add_conversation_message(user_id, role, content):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute(
+            "INSERT INTO conversations (user_id, role, content) VALUES (?, ?, ?)",
+            (user_id, role, content)
+        )
+        await db.commit()
+
+async def get_conversation_history(user_id, limit=10):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT role, content FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (user_id, limit)
+        )
+        history = await cursor.fetchall()
+        return [dict(h) for h in reversed(history)]
+
+async def clear_conversation_history(user_id):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
+        await db.commit()
