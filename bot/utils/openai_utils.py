@@ -87,3 +87,24 @@ async def transcribe_audio(file_path: str) -> str:
 
 async def analyze_document(text: str, query: str) -> str:
     return await get_chat_response([{"role": "user", "content": f"Hujjat: {text[:2000]}\nSavol: {query}"}])
+    import re
+
+def _strip_ads(text: str) -> str:
+    """Pollinations javobidagi reklama bloklarini olib tashlash."""
+    if not text:
+        return text
+    markers = [
+        "**Support Pollinations",
+        "🌸 **Ad**",
+        "🌸 Ad 🌸",
+        "Powered by Pollinations",
+        "pollinations.ai/redirect",
+    ]
+    lowest = len(text)
+    for m in markers:
+        idx = text.find(m)
+        if idx != -1 and idx < lowest:
+            lowest = idx
+    text = text[:lowest]
+    text = re.sub(r"\n-{3,}\s*$", "", text)
+    return text.strip()
