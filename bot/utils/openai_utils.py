@@ -13,9 +13,14 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Bepul modellar orasida eng barqarorini tanlaymiz
 CHAT_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-lite-preview-02-05:free")
 
+# OpenRouter uchun qo'shimcha sarlavhalar (headers) qo'shamiz
 client = AsyncOpenAI(
     api_key=OPENAI_API_KEY,
     base_url=OPENROUTER_BASE_URL,
+    default_headers={
+        "HTTP-Referer": "https://github.com/Husniddin06/Yengi", # OpenRouter talabi
+        "X-Title": "SmartAI Bot",
+    }
 )
 
 SYSTEM_PROMPT = (
@@ -36,10 +41,17 @@ async def get_chat_response(messages: list) -> str:
         )
         return response.choices[0].message.content
     except OpenAIError as e:
-        logger.error(f"OpenRouter API error: {e}")
-        if "429" in str(e):
+        error_str = str(e)
+        logger.error(f"OpenRouter API error: {error_str}")
+        
+        if "401" in error_str or "User not found" in error_str:
+            return "⚠️ AI xizmati bilan bog'lanishda xatolik (401). Iltimos, API kalitni tekshiring yoki admin bilan bog'laning."
+        elif "429" in error_str:
             return "⚠️ Bepul so'rovlar limiti tugadi. Iltimos, birozdan keyin urinib ko'ring yoki Premium sotib oling. ✨"
-        return f"⚠️ AI xatosi: {e}"
+        elif "403" in error_str:
+            return "⚠️ AI xizmatiga kirish taqiqlangan (403). Bu odatda API kalit yoki model bilan bog'liq muammo."
+            
+        return f"⚠️ AI xatosi: {error_str}"
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         return f"⚠️ Kutilmagan xato yuz berdi."
