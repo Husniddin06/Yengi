@@ -3,11 +3,9 @@ import os
 import sys
 import urllib.parse
 import base64
-from openai import AsyncOpenAI, OpenAIError
+from openai import AsyncOpenAI
 from config import OPENAI_API_KEY
 from duckduckgo_search import DDGS
-from bs4 import BeautifulSoup
-import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +18,6 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 SYSTEM_PROMPT = (
     "Sen SmartAI — kuchli va aqlli AI assistantsan. "
     "Foydalanuvchiga har qanday savol bo'yicha batafsil, aniq va foydali javob ber. "
-    "Agar savolga javob berish uchun yangi ma'lumot kerak bo'lsa, internetdan qidiruv natijalaridan foydalan. "
     "Har doim foydalanuvchi tilida javob ber. "
     "Javoblar professional, tushunarli va to'liq bo'lsin."
 )
@@ -38,8 +35,8 @@ async def web_search(query: str) -> str:
         return "Qidiruvda xatolik yuz berdi."
 
 async def get_chat_response(messages: list, use_web=False) -> str:
-    if not OPENAI_API_KEY:
-        return "⚠️ Xatolik: API kalit o'rnatilmagan."
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "None":
+        return "⚠️ Xatolik: OPENAI_API_KEY Railway Variables bo'limida o'rnatilmagan yoki noto'g'ri!"
 
     try:
         # Agar internetdan qidirish yoqilgan bo'lsa
@@ -57,8 +54,13 @@ async def get_chat_response(messages: list, use_web=False) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Chat error: {e}")
-        return f"⚠️ AI xizmatida muammo yuz berdi."
+        logger.error(f"OpenAI Error: {e}")
+        error_str = str(e)
+        if "insufficient_quota" in error_str:
+            return "⚠️ OpenAI xatosi: Hisobingizda mablag' tugagan (Insufficient Quota)."
+        elif "invalid_api_key" in error_str:
+            return "⚠️ OpenAI xatosi: API kalit noto'g'ri kiritilgan (Invalid API Key)."
+        return f"⚠️ OpenAI xatosi: {error_str}"
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
@@ -81,7 +83,7 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Vision error: {e}")
-        return f"⚠️ Rasmni tahlil qilishda xatolik yuz berdi."
+        return f"⚠️ Rasmni tahlil qilishda xatolik: {str(e)}"
 
 async def generate_image(prompt: str) -> str:
     try:
@@ -101,7 +103,6 @@ async def generate_image(prompt: str) -> str:
 async def edit_image(image_path: str, prompt: str) -> str:
     """Rasmga o'zgartirish kiritish (DALL-E Edit)"""
     try:
-        # OpenAI rasm tahrirlash uchun PNG format va kvadrat rasm talab qiladi
         response = await client.images.edit(
             image=open(image_path, "rb"),
             prompt=prompt,
@@ -139,4 +140,4 @@ async def analyze_document(text: str, query: str) -> str:
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Document analysis error: {e}")
-        return "⚠️ Hujjatni tahlil qilishda xatolik yuz berdi."
+        return f"⚠️ Hujjatni tahlil qilishda xatolik: {str(e)}"
