@@ -3,6 +3,7 @@ import os
 import sys
 import urllib.parse
 import base64
+import aiohttp
 from openai import AsyncOpenAI
 from config import OPENAI_API_KEY
 from duckduckgo_search import DDGS
@@ -18,12 +19,23 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 SYSTEM_PROMPT = (
     "Sen SmartAI — kuchli va aqlli AI assistantsan. "
     "Foydalanuvchiga har qanday savol bo'yicha batafsil, aniq va foydali javob ber. "
-    "Har doim foydalanuvchi tilida javob ber. "
-    "Javoblar professional, tushunarli va to'liq bo'lsin."
+    "Har doim foydalanuvchi tilida javob ber."
 )
 
+async def get_free_ai_response(prompt: str) -> str:
+    """Agar OpenAI kvotasi tugasa, bepul modeldan foydalanish (Pollinations)"""
+    try:
+        encoded_prompt = urllib.parse.quote(prompt)
+        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(SYSTEM_PROMPT)}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.text()
+        return "⚠️ Hozirda barcha tizimlar band. Birozdan so'ng urinib ko'ring."
+    except Exception as e:
+        return f"⚠️ Xatolik yuz berdi: {str(e)}"
+
 async def web_search(query: str) -> str:
-    """DuckDuckGo orqali internetdan qidirish"""
     try:
         results = []
         with DDGS() as ddgs:
@@ -36,14 +48,15 @@ async def web_search(query: str) -> str:
 
 async def get_chat_response(messages: list, use_web=False) -> str:
     if not OPENAI_API_KEY or OPENAI_API_KEY == "None":
-        return "⚠️ Xatolik: OPENAI_API_KEY Railway Variables bo'limida o'rnatilmagan yoki noto'g'ri!"
+        # Agar kalit bo'lmasa, bepul modelga o'tamiz
+        last_msg = messages[-1]["content"]
+        return await get_free_ai_response(last_msg)
 
     try:
-        # Agar internetdan qidirish yoqilgan bo'lsa
         if use_web:
             last_query = messages[-1]["content"]
             search_data = await web_search(last_query)
-            messages.append({"role": "system", "content": f"Internetdan qidiruv natijalari:\n{search_data}\n\nUshbu ma'lumotlardan foydalanib javob ber."})
+            messages.append({"role": "system", "content": f"Internetdan qidiruv natijalari:\n{search_data}"})
 
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
         response = await client.chat.completions.create(
@@ -56,10 +69,13 @@ async def get_chat_response(messages: list, use_web=False) -> str:
     except Exception as e:
         logger.error(f"OpenAI Error: {e}")
         error_str = str(e)
+        
+        # AGAR KVOTA TUGAGAN BO'LSA, BEPUL MODELGA O'TAMIZ
         if "insufficient_quota" in error_str:
-            return "⚠️ OpenAI xatosi: Hisobingizda mablag' tugagan (Insufficient Quota)."
-        elif "invalid_api_key" in error_str:
-            return "⚠️ OpenAI xatosi: API kalit noto'g'ri kiritilgan (Invalid API Key)."
+            logger.info("Kvota tugadi, bepul modelga o'tilmoqda...")
+            last_msg = messages[-1]["content"]
+            return await get_free_ai_response(last_msg)
+            
         return f"⚠️ OpenAI xatosi: {error_str}"
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
@@ -82,37 +98,24 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Vision error: {e}")
-        return f"⚠️ Rasmni tahlil qilishda xatolik: {str(e)}"
+        # Vision uchun bepul muqobil hozircha yo'q, shuning uchun xatoni qaytaramiz
+        return f"⚠️ Rasmni tahlil qilishda kvota yetmadi: {str(e)}"
 
 async def generate_image(prompt: str) -> str:
     try:
+        # Kvota bo'lsa DALL-E 3
         response = await client.images.generate(
             model="dall-e-3",
             prompt=prompt,
             size="1024x1024",
-            quality="standard",
             n=1,
         )
         return response.data[0].url
     except Exception as e:
-        logger.error(f"DALL-E error: {e}")
+        # Kvota tugasa bepul Pollinations.ai
+        logger.info("DALL-E kvotasi tugadi, Pollinations'ga o'tilmoqda...")
         encoded = urllib.parse.quote(prompt)
         return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
-
-async def edit_image(image_path: str, prompt: str) -> str:
-    """Rasmga o'zgartirish kiritish (DALL-E Edit)"""
-    try:
-        response = await client.images.edit(
-            image=open(image_path, "rb"),
-            prompt=prompt,
-            n=1,
-            size="1024x1024"
-        )
-        return response.data[0].url
-    except Exception as e:
-        logger.error(f"Image Edit error: {e}")
-        return f"⚠️ Rasmni tahrirlashda xatolik: {str(e)}"
 
 async def transcribe_audio(file_path: str) -> str:
     try:
@@ -123,14 +126,13 @@ async def transcribe_audio(file_path: str) -> str:
             )
             return transcript.text
     except Exception as e:
-        logger.error(f"Whisper error: {e}")
         return ""
 
 async def analyze_document(text: str, query: str) -> str:
     try:
         messages = [
-            {"role": "system", "content": "Sen hujjatlarni tahlil qiluvchi yordamchisan. Quyidagi matn asosida savolga javob ber."},
-            {"role": "user", "content": f"Hujjat matni:\n{text}\n\nSavol: {query}"}
+            {"role": "system", "content": "Sen hujjatlarni tahlil qiluvchi yordamchisan."},
+            {"role": "user", "content": f"Hujjat: {text}\n\nSavol: {query}"}
         ]
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
@@ -139,5 +141,5 @@ async def analyze_document(text: str, query: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Document analysis error: {e}")
-        return f"⚠️ Hujjatni tahlil qilishda xatolik: {str(e)}"
+        # Hujjat tahlili uchun ham bepul modelga o'tish mumkin
+        return await get_free_ai_response(f"Hujjat: {text[:2000]}\n\nSavol: {query}")
