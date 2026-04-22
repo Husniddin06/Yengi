@@ -1,6 +1,7 @@
 import logging
-import sys
 import os
+import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from openai import AsyncOpenAI, OpenAIError
@@ -44,7 +45,5 @@ async def get_chat_response(messages: list) -> str:
         return f"⚠️ Kutilmagan xato: {e}"
 
 async def generate_image(prompt: str) -> str:
-    return (
-        "Error: Rasm yaratish funksiyasi hozircha mavjud emas. "
-        "OpenRouter faqat matnli modellarni qo'llab-quvvatlaydi."
-    )
+    encoded = urllib.parse.quote(prompt)
+    return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"

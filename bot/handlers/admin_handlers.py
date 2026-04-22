@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from config import ADMIN_ID
 from database import db
-from handlers.user_handlers import get_message # Import get_message from user_handlers
+from handlers.user_handlers import get_message
 
 admin_router = Router()
 
@@ -20,7 +20,6 @@ class AdminStates(StatesGroup):
 
 @admin_router.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def cmd_admin(message: Message):
-    # Admin panel messages will be in English for consistency, as per previous implementation
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=get_message("en", "stats_button"), callback_data="admin_stats")],
         [types.InlineKeyboardButton(text=get_message("en", "broadcast_button"), callback_data="admin_broadcast")],
@@ -33,7 +32,6 @@ async def cmd_admin(message: Message):
 async def admin_stats(callback: CallbackQuery):
     total_users = await db.get_total_users()
     premium_users = await db.get_premium_users_count()
-
     stats_text = get_message("en", "admin_stats", total_users, premium_users)
     await callback.message.answer(stats_text)
     await callback.answer()
@@ -62,7 +60,6 @@ async def admin_payments(callback: CallbackQuery):
         await callback.message.answer(get_message("en", "no_pending_payments"))
         await callback.answer()
         return
-
     for payment in pending_payments:
         user = await db.get_user(payment["user_id"])
         admin_message = get_message("en", "new_payment_admin",
@@ -86,21 +83,19 @@ async def approve_payment(callback: CallbackQuery):
     user_id = int(data[3])
     period_value = data[4]
     period_unit = data[5]
-
     premium_until = datetime.now()
     if period_unit == "days":
         premium_until += timedelta(days=int(period_value))
     elif period_unit == "month":
-        premium_until += timedelta(days=30 * int(period_value)) # Approximation
+        premium_until += timedelta(days=30 * int(period_value))
     elif period_unit == "months":
-        premium_until += timedelta(days=30 * int(period_value)) # Approximation
-
+        premium_until += timedelta(days=30 * int(period_value))
     await db.update_payment_status(payment_id, "approved", callback.from_user.id)
     await db.update_user_premium(user_id, True, premium_until)
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(get_message("en", "payment_approved_admin", payment_id, user_id))
-    
-    user_lang = (await db.get_user(user_id))["language_code"]
+    user = await db.get_user(user_id)
+    user_lang = user["language_code"]
     await callback.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", premium_until.strftime("%Y-%m-%d %H:%M")))
     await callback.answer()
 
@@ -134,10 +129,10 @@ async def admin_give_premium_user_id(message: Message, state: FSMContext):
         user_id = int(message.text)
         user = await db.get_user(user_id)
         if user:
-            premium_until = datetime.now() + timedelta(days=30) # Default 30 days premium
+            premium_until = datetime.now() + timedelta(days=30)
             await db.update_user_premium(user_id, True, premium_until)
             await message.answer(get_message("en", "premium_given_admin", user_id))
-            user_lang = (await db.get_user(user_id))["language_code"]
+            user_lang = user["language_code"]
             await message.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", premium_until.strftime("%Y-%m-%d %H:%M")))
         else:
             await message.answer(get_message("en", "user_not_found"))
@@ -159,7 +154,7 @@ async def admin_block_user_id(message: Message, state: FSMContext):
         if user:
             await db.block_user(user_id)
             await message.answer(get_message("en", "user_blocked_admin", user_id))
-            user_lang = (await db.get_user(user_id))["language_code"]
+            user_lang = user["language_code"]
             await message.bot.send_message(user_id, get_message(user_lang, "user_blocked_user"))
         else:
             await message.answer(get_message("en", "user_not_found"))
@@ -181,10 +176,33 @@ async def admin_unblock_user_id(message: Message, state: FSMContext):
         if user:
             await db.unblock_user(user_id)
             await message.answer(get_message("en", "user_unblocked_admin", user_id))
-            user_lang = (await db.get_user(user_id))["language_code"]
+            user_lang = user["language_code"]
             await message.bot.send_message(user_id, get_message(user_lang, "user_unblocked_user"))
         else:
             await message.answer(get_message("en", "user_not_found"))
     except ValueError:
         await message.answer(get_message("en", "invalid_user_id"))
     await state.clear()
+
+@admin_router.message(Command("addpromo"), F.from_user.id == ADMIN_ID)
+async def cmd_add_promo(message: Message):
+    parts = message.text.split()
+    if len(parts) < 5:
+        await message.answer("Foydalanish: /addpromo CODE DAYS REQS USES")
+        return
+    try:
+        code = parts[1].upper()
+        days = int(parts[2])
+        reqs = int(parts[3])
+        uses = int(parts[4])
+    except ValueError:
+        await message.answer("Raqamlar noto'g'ri.")
+        return
+    await db.create_promo(code, days, reqs, uses)
+    await message.answer(
+        f"✅ Promokod yaratildi:\n"
+        f"<code>{code}</code>\n"
+        f"Premium: +{days} kun\n"
+        f"Qo'shimcha so'rov: +{reqs}\n"
+        f"Ishlatish soni: {uses}"
+    )

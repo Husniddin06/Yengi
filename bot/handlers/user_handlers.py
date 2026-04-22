@@ -3,11 +3,17 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.enums import ChatAction
 from datetime import datetime, timedelta
-
-from config import ADMIN_ID, SPB_PAYMENT_LINK
+from config import ADMIN_ID, SPB_PAYMENT_LINK, DAILY_BONUS
 from database import db
 from utils.openai_utils import get_chat_response, generate_image
+from utils.text_utils import split_message, markdown_to_html
+from utils.keyboards import (
+    main_menu, lang_keyboard,
+    BTN_BALANCE, BTN_PREMIUM, BTN_REF, BTN_HELP, BTN_CLEAR,
+    BTN_IMAGE, BTN_LANG, BTN_BONUS,
+)
 
 user_router = Router()
 
@@ -16,90 +22,155 @@ class UserStates(StatesGroup):
     waiting_for_payment_confirmation = State()
     waiting_for_image_prompt = State()
 
-# --- Localization dictionaries ---
-# Uzbek
+# ---------------- Localization ----------------
 UZ_MESSAGES = {
-    "welcome": lambda name, daily_limit: f"Assalomu alaykum, {name}! 👋 SmartAI botga xush kelibsiz.\n\nMen sizning shaxsiy AI yordamchingizman. Men bilan suhbatlashishingiz, savollar berishingiz va hatto rasmlar yaratishingiz mumkin.\n\nSizda kunlik {daily_limit} ta bepul so'rov mavjud. Premium obuna orqali cheksiz imkoniyatlarga ega bo'ling! ✨ /premium",
-    "welcome_premium": lambda name: f"Assalomu alaykum, {name}! 👋 SmartAI botga xush kelibsiz.\n\nMen sizning shaxsiy AI yordamchingizman. Men bilan suhbatlashishingiz, savollar berishingiz va hatto rasmlar yaratishingiz mumkin.\n\nSiz premium foydalanuvchisiz va cheksiz imkoniyatlarga egasiz! 🚀",
-    "premium_exists": lambda until: f"Sizda allaqachon premium obuna mavjud. Obunangiz {until} gacha amal qiladi. 🗓️",
+    "welcome": lambda name, daily_limit: f"Assalomu alaykum, {name}! 👋 SmartAI botga xush kelibsiz.\n\nMen sizning shaxsiy AI yordamchingizman. Savol bering, suhbatlashing yoki rasm yarating.\n\nKunlik {daily_limit} ta bepul so'rov bor. Cheksiz uchun /premium ✨",
+    "welcome_premium": lambda name: f"Assalomu alaykum, {name}! 👋 Siz premium foydalanuvchisiz — cheksiz imkoniyatlar! 🚀",
+    "premium_exists": lambda until: f"Sizda allaqachon premium mavjud. {until} gacha amal qiladi. 🗓️",
     "choose_premium": "Premium obunani tanlang: 👇",
-    "payment_info": lambda period, amount, link: f"Siz {period} uchun {amount} RUB miqdorida premium obuna sotib olmoqchisiz.\n\nTo'lovni amalga oshirish uchun quyidagi SPB havolasidan foydalaning: 🔗 {link}\n\nTo'lovni amalga oshirganingizdan so'ng, 'To'ladim' tugmasini bosing. Admin to'lovingizni tasdiqlagandan so'ng, premium obunangiz faollashadi. ✅",
-    "payment_received": "To'lovingiz qabul qilindi va admin tasdiqlashini kutmoqda. Rahmat! 🙏",
-    "balance_info": lambda status, daily_limit, premium_until: f"Sizning balansingiz: 📊\nStatus: {status}\nKunlik limit: {daily_limit}\nPremium gacha: {premium_until}",
-    "not_registered": "Siz ro'yxatdan o'tmagansiz. /start buyrug'ini bosing. ↩️",
-    "referral_info": lambda link, count: f"Sizning referral havolangiz: 🤝 {link}\n\nSiz {count} ta do'stingizni taklif qildingiz. 3 ta do'st taklif qilsangiz, 7 kunlik premium olasiz! 🎁",
-    "awaiting_response": "Javob kutilmoqda... ⏳",
-    "daily_limit_exceeded": "Sizning kunlik limitingiz tugadi. Premium obuna sotib oling yoki ertaga qayta urinib ko'ring. /premium 😔",
-    "premium_only_feature": "Faqat premium foydalanuvchilar bu funksiyadan foydalana oladi. /premium 🚫",
-    "image_prompt_request": "Iltimos, rasm yaratish uchun tavsif bering: 🖼️",
+    "payment_info": lambda period, amount, link: f"Siz {period} uchun {amount} RUB miqdorida premium sotib olmoqchisiz.\n\nTo'lovni amalga oshiring: 🔗 {link}\n\nKeyin 'To'ladim' tugmasini bosing. ✅",
+    "payment_received": "To'lovingiz qabul qilindi va tasdiqlash kutilmoqda. 🙏",
+    "balance_info": lambda status, daily_limit, premium_until: f"📊 Balans:\nStatus: {status}\nKunlik limit: {daily_limit}\nPremium gacha: {premium_until}",
+    "not_registered": "Avval /start buyrug'ini bosing. ↩️",
+    "referral_info": lambda link, count: f"🤝 Sizning referral havolangiz:\n{link}\n\nSiz {count} ta do'st taklif qildingiz. 3 ta = 7 kunlik premium! 🎁",
+    "daily_limit_exceeded": "Kunlik limit tugadi. /premium yoki /bonus 😔",
+    "premium_only_feature": "Bu funksiya faqat premium uchun. /premium 🚫",
+    "image_prompt_request": "Rasm uchun tavsif bering: 🖼️",
     "image_generating": "Rasm yaratilmoqda... 🎨",
-    "image_error": lambda error: f"Rasm yaratishda xatolik yuz berdi: {error} ❌",
-    "image_ready": "Sizning rasmingiz tayyor! ✨",
-    "referrer_premium_granted": "🎉 Siz 3 ta do'stingizni taklif qildingiz va 7 kunlik premium obunaga ega bo'ldingiz!",
-    "payment_approved_user": lambda until: f"Tabriklaymiz! Sizning premium obunangiz faollashdi va {until} gacha amal qiladi. 🎉",
-    "error_occurred": "Kechirasiz, kutilmagan xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring. 😔",
+    "image_error": lambda error: f"Rasm xatosi: {error} ❌",
+    "image_ready": "Rasm tayyor! ✨",
+    "referrer_premium_granted": "🎉 3 ta do'st taklif qildingiz va 7 kunlik premium oldingiz!",
+    "payment_approved_user": lambda until: f"🎉 Premium faollashdi, {until} gacha amal qiladi.",
+    "error_occurred": "Kutilmagan xatolik. Keyinroq urinib ko'ring. 😔",
     "unlimited": "Cheksiz",
     "7_days": "7 kun (50 RUB)",
     "1_month": "1 oy (150 RUB)",
     "3_months": "3 oy (350 RUB)",
-    "paid_button": "To'ladim"
+    "paid_button": "To'ladim",
+    "help": (
+        "<b>SmartAI — yordam</b>\n\n"
+        "💬 Oddiy yozing — AI javob beradi\n"
+        "🎨 /image — rasm yaratish (Pollinations)\n"
+        "📊 /balance — balansingiz\n"
+        "💎 /premium — premium obuna\n"
+        "👥 /referral — do'stlarni taklif qilish\n"
+        "🎁 /bonus — kunlik bepul so'rov bonusi\n"
+        "🎟 /promo CODE — promokod kiritish\n"
+        "🗑 /clear — suhbatni tozalash\n"
+        "🌐 /lang — til almashtirish\n"
+        "🆘 /help — bu yordam"
+    ),
+    "cleared": "Suhbat tarixi tozalandi. ✅",
+    "choose_lang": "Tilni tanlang: 🌐",
+    "lang_set": "Til o'zgartirildi. ✅",
+    "bonus_claimed": lambda n: f"🎁 Sizga {n} ta qo'shimcha so'rov berildi!",
+    "bonus_already": "Bugungi bonusni allaqachon olgansiz. Ertaga qayting. ⏰",
+    "promo_usage": "Foydalanish: <code>/promo CODE</code>",
+    "promo_invalid": "Bunday promokod yo'q yoki muddati tugagan. ❌",
+    "promo_already": "Bu promokoddan allaqachon foydalangansiz. 🔁",
+    "promo_success": lambda days, reqs: f"✅ Promokod qo'llanildi! Premium kunlari: +{days}, qo'shimcha so'rov: +{reqs}",
+    "typing_now": "✍️ Yozyapman...",
 }
 
-# Russian
 RU_MESSAGES = {
-    "welcome": lambda name, daily_limit: f"Здравствуйте, {name}! 👋 Добро пожаловать в SmartAI бот.\n\nЯ ваш личный AI-помощник. Вы можете общаться со мной, задавать вопросы и даже создавать изображения.\n\nУ вас есть {daily_limit} бесплатных запросов в день. Получите неограниченные возможности с премиум-подпиской! ✨ /premium",
-    "welcome_premium": lambda name: f"Здравствуйте, {name}! 👋 Добро пожаловать в SmartAI бот.\n\nЯ ваш личный AI-помощник. Вы можете общаться со мной, задавать вопросы и даже создавать изображения.\n\nВы являетесь премиум-пользователем и имеете неограниченные возможности! 🚀",
-    "premium_exists": lambda until: f"У вас уже есть премиум-подписка. Ваша подписка действует до {until}. 🗓️",
-    "choose_premium": "Выберите премиум-подписку: 👇",
-    "payment_info": lambda period, amount, link: f"Вы собираетесь приобрести премиум-подписку на {period} за {amount} RUB.\n\nДля совершения платежа используйте следующую ссылку СБП: 🔗 {link}\n\nПосле совершения платежа нажмите кнопку 'Я оплатил'. После подтверждения администратором ваша премиум-подписка будет активирована. ✅",
-    "payment_received": "Ваш платеж принят и ожидает подтверждения администратором. Спасибо! 🙏",
-    "balance_info": lambda status, daily_limit, premium_until: f"Ваш баланс: 📊\nСтатус: {status}\nЕжедневный лимит: {daily_limit}\nПремиум до: {premium_until}",
-    "not_registered": "Вы не зарегистрированы. Нажмите /start. ↩️",
-    "referral_info": lambda link, count: f"Ваша реферальная ссылка: 🤝 {link}\n\nВы пригласили {count} друзей. Пригласите 3 друзей и получите 7 дней премиума! 🎁",
-    "awaiting_response": "Ожидаю ответа... ⏳",
-    "daily_limit_exceeded": "Ваш ежедневный лимит исчерпан. Приобретите премиум-подписку или попробуйте снова завтра. /premium 😔",
-    "premium_only_feature": "Только премиум-пользователи могут использовать эту функцию. /premium 🚫",
-    "image_prompt_request": "Пожалуйста, опишите изображение, которое вы хотите создать: 🖼️",
-    "image_generating": "Генерирую изображение... 🎨",
-    "image_error": lambda error: f"Произошла ошибка при создании изображения: {error} ❌",
-    "image_ready": "Ваше изображение готово! ✨",
-    "referrer_premium_granted": "🎉 Вы пригласили 3 друзей и получили 7 дней премиум-подписки!",
-    "payment_approved_user": lambda until: f"Поздравляем! Ваша премиум-подписка активирована и действует до {until}. 🎉",
-    "error_occurred": "Извините, произошла непредвиденная ошибка. Пожалуйста, попробуйте позже. 😔",
-    "unlimited": "Безлимитный",
+    "welcome": lambda name, daily_limit: f"Здравствуйте, {name}! 👋 Добро пожаловать в SmartAI.\n\nЯ ваш AI-помощник. Задавайте вопросы или создавайте картинки.\n\nУ вас {daily_limit} бесплатных запросов. Безлимит: /premium ✨",
+    "welcome_premium": lambda name: f"Здравствуйте, {name}! 👋 Вы премиум — безлимит! 🚀",
+    "premium_exists": lambda until: f"У вас уже есть премиум до {until}. 🗓️",
+    "choose_premium": "Выберите подписку: 👇",
+    "payment_info": lambda period, amount, link: f"Премиум на {period} за {amount} RUB.\n\nОплатите: 🔗 {link}\n\nЗатем нажмите 'Я оплатил'. ✅",
+    "payment_received": "Платеж получен и ждёт подтверждения. 🙏",
+    "balance_info": lambda status, daily_limit, premium_until: f"📊 Баланс:\nСтатус: {status}\nДневной лимит: {daily_limit}\nПремиум до: {premium_until}",
+    "not_registered": "Сначала нажмите /start. ↩️",
+    "referral_info": lambda link, count: f"🤝 Ваша ссылка:\n{link}\n\nПриглашено: {count}. 3 друга = 7 дней премиума! 🎁",
+    "daily_limit_exceeded": "Дневной лимит исчерпан. /premium или /bonus 😔",
+    "premium_only_feature": "Только для премиум. /premium 🚫",
+    "image_prompt_request": "Опишите картинку: 🖼️",
+    "image_generating": "Генерирую... 🎨",
+    "image_error": lambda error: f"Ошибка: {error} ❌",
+    "image_ready": "Готово! ✨",
+    "referrer_premium_granted": "🎉 Вы пригласили 3 друзей и получили 7 дней премиума!",
+    "payment_approved_user": lambda until: f"🎉 Премиум активирован до {until}.",
+    "error_occurred": "Ошибка. Попробуйте позже. 😔",
+    "unlimited": "Безлимит",
     "7_days": "7 дней (50 RUB)",
     "1_month": "1 месяц (150 RUB)",
     "3_months": "3 месяца (350 RUB)",
-    "paid_button": "Я оплатил"
+    "paid_button": "Я оплатил",
+    "help": (
+        "<b>SmartAI — помощь</b>\n\n"
+        "💬 Просто пишите — AI ответит\n"
+        "🎨 /image — генерация картинки\n"
+        "📊 /balance — баланс\n"
+        "💎 /premium — премиум\n"
+        "👥 /referral — пригласить друзей\n"
+        "🎁 /bonus — ежедневный бонус\n"
+        "🎟 /promo CODE — промокод\n"
+        "🗑 /clear — очистить историю\n"
+        "🌐 /lang — сменить язык\n"
+        "🆘 /help — помощь"
+    ),
+    "cleared": "История очищена. ✅",
+    "choose_lang": "Выберите язык: 🌐",
+    "lang_set": "Язык изменён. ✅",
+    "bonus_claimed": lambda n: f"🎁 Вам начислено +{n} запросов!",
+    "bonus_already": "Бонус уже получен сегодня. ⏰",
+    "promo_usage": "Использование: <code>/promo CODE</code>",
+    "promo_invalid": "Промокод не найден или истёк. ❌",
+    "promo_already": "Вы уже использовали этот промокод. 🔁",
+    "promo_success": lambda days, reqs: f"✅ Промокод применён! Премиум +{days} дн., запросов +{reqs}",
+    "typing_now": "✍️ Печатаю...",
 }
 
-# English
 EN_MESSAGES = {
-    "welcome": lambda name, daily_limit: f"Hello, {name}! 👋 Welcome to SmartAI bot.\n\nI am your personal AI assistant. You can chat with me, ask questions, and even create images.\n\nYou have {daily_limit} free requests per day. Get unlimited possibilities with a premium subscription! ✨ /premium",
-    "welcome_premium": lambda name: f"Hello, {name}! 👋 Welcome to SmartAI bot.\n\nI am your personal AI assistant. You can chat with me, ask questions, and even create images.\n\nYou are a premium user and have unlimited possibilities! 🚀",
-    "premium_exists": lambda until: f"You already have a premium subscription. Your subscription is valid until {until}. 🗓️",
-    "choose_premium": "Choose a premium subscription: 👇",
-    "payment_info": lambda period, amount, link: f"You are about to purchase a premium subscription for {period} for {amount} RUB.\n\nTo make a payment, use the following SPB link: 🔗 {link}\n\nAfter making the payment, click the 'I have paid' button. Your premium subscription will be activated after admin confirmation. ✅",
-    "payment_received": "Your payment has been received and is awaiting admin confirmation. Thank you! 🙏",
-    "balance_info": lambda status, daily_limit, premium_until: f"Your balance: 📊\nStatus: {status}\nDaily limit: {daily_limit}\nPremium until: {premium_until}",
-    "not_registered": "You are not registered. Please type /start. ↩️",
-    "referral_info": lambda link, count: f"Your referral link: 🤝 {link}\n\n You have invited {count} friends. Invite 3 friends and get 7 days of premium! 🎁",
-    "awaiting_response": "Awaiting response... ⏳",
-    "daily_limit_exceeded": "Your daily limit has been exceeded. Purchase a premium subscription or try again tomorrow. /premium 😔",
-    "premium_only_feature": "Only premium users can use this feature. /premium 🚫",
-    "image_prompt_request": "Please provide a description for the image you want to create: 🖼️",
-    "image_generating": "Generating image... 🎨",
-    "image_error": lambda error: f"An error occurred while generating the image: {error} ❌",
-    "image_ready": "Your image is ready! ✨",
-    "referrer_premium_granted": "🎉 You have invited 3 friends and received a 7-day premium subscription!",
-    "payment_approved_user": lambda until: f"Congratulations! Your premium subscription has been activated and is valid until {until}. 🎉",
-    "error_occurred": "Sorry, an unexpected error occurred. Please try again later. 😔",
+    "welcome": lambda name, daily_limit: f"Hello, {name}! 👋 Welcome to SmartAI.\n\nI'm your AI assistant. Chat or generate images.\n\nYou have {daily_limit} free requests. Unlimited: /premium ✨",
+    "welcome_premium": lambda name: f"Hello, {name}! 👋 You are premium — unlimited access! 🚀",
+    "premium_exists": lambda until: f"You already have premium until {until}. 🗓️",
+    "choose_premium": "Choose a subscription: 👇",
+    "payment_info": lambda period, amount, link: f"Premium for {period} = {amount} RUB.\n\nPay here: 🔗 {link}\n\nThen tap 'I paid'. ✅",
+    "payment_received": "Payment received, awaiting admin confirmation. 🙏",
+    "balance_info": lambda status, daily_limit, premium_until: f"📊 Balance:\nStatus: {status}\nDaily limit: {daily_limit}\nPremium until: {premium_until}",
+    "not_registered": "Please type /start first. ↩️",
+    "referral_info": lambda link, count: f"🤝 Your referral link:\n{link}\n\nInvited: {count}. 3 friends = 7 days premium! 🎁",
+    "daily_limit_exceeded": "Daily limit reached. /premium or /bonus 😔",
+    "premium_only_feature": "Premium-only feature. /premium 🚫",
+    "image_prompt_request": "Describe the image: 🖼️",
+    "image_generating": "Generating... 🎨",
+    "image_error": lambda error: f"Error: {error} ❌",
+    "image_ready": "Ready! ✨",
+    "referrer_premium_granted": "🎉 You invited 3 friends and got 7 days of premium!",
+    "payment_approved_user": lambda until: f"🎉 Premium activated until {until}.",
+    "error_occurred": "Error. Try again later. 😔",
     "unlimited": "Unlimited",
     "7_days": "7 days (50 RUB)",
     "1_month": "1 month (150 RUB)",
     "3_months": "3 months (350 RUB)",
-    "paid_button": "I have paid"
+    "paid_button": "I paid",
+    "help": (
+        "<b>SmartAI — help</b>\n\n"
+        "💬 Just type — AI answers\n"
+        "🎨 /image — generate image\n"
+        "📊 /balance — your balance\n"
+        "💎 /premium — premium plans\n"
+        "👥 /referral — invite friends\n"
+        "🎁 /bonus — daily bonus\n"
+        "🎟 /promo CODE — redeem promo\n"
+        "🗑 /clear — clear chat history\n"
+        "🌐 /lang — change language\n"
+        "🆘 /help — this help"
+    ),
+    "cleared": "Conversation cleared. ✅",
+    "choose_lang": "Choose language: 🌐",
+    "lang_set": "Language changed. ✅",
+    "bonus_claimed": lambda n: f"🎁 +{n} extra requests added!",
+    "bonus_already": "Bonus already claimed today. ⏰",
+    "promo_usage": "Usage: <code>/promo CODE</code>",
+    "promo_invalid": "Promo not found or expired. ❌",
+    "promo_already": "You already used this promo. 🔁",
+    "promo_success": lambda days, reqs: f"✅ Promo applied! Premium +{days} days, requests +{reqs}",
+    "typing_now": "✍️ Typing...",
 }
+
+MESSAGE_MAP = {"uz": UZ_MESSAGES, "ru": RU_MESSAGES, "en": EN_MESSAGES}
 
 ADMIN_MESSAGES = {
     "admin_welcome": lambda: "Admin panel: 👇",
@@ -135,22 +206,34 @@ ADMIN_MESSAGES = {
     "user_unblocked_user": lambda: "Your account has been unblocked. ✅",
 }
 
-MESSAGE_MAP = {
-    "uz": UZ_MESSAGES,
-    "ru": RU_MESSAGES,
-    "en": EN_MESSAGES
-}
-
 def get_message(lang_code, key, *args, **kwargs):
     lang_dict = MESSAGE_MAP.get(lang_code, EN_MESSAGES)
-    value = lang_dict.get(key) or EN_MESSAGES.get(key) or ADMIN_MESSAGES.get(key)
+    value = lang_dict.get(key)
+    if value is None:
+        value = EN_MESSAGES.get(key)
+    if value is None:
+        value = ADMIN_MESSAGES.get(key)
     if value is None:
         return key
     if callable(value):
         return value(*args, **kwargs)
     return value
 
+async def _user_lang(user_id: int) -> str:
+    user = await db.get_user(user_id)
+    if user and user.get("language_code") in MESSAGE_MAP:
+        return user["language_code"]
+    return "en"
 
+async def _send_long(message: Message, text: str):
+    html = markdown_to_html(text)
+    for chunk in split_message(html):
+        try:
+            await message.answer(chunk)
+        except Exception:
+            await message.answer(chunk, parse_mode=None)
+
+# ---------------- Commands ----------------
 @user_router.message(CommandStart())
 async def cmd_start(message: Message, command: CommandObject, state: FSMContext):
     user_id = message.from_user.id
@@ -158,49 +241,113 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
     first_name = message.from_user.first_name
     last_name = message.from_user.last_name
     language_code = message.from_user.language_code if message.from_user.language_code in MESSAGE_MAP else "en"
-
     referred_by = None
     args = command.args
     if args:
         try:
             referred_by = int(args)
             if referred_by == user_id:
-                referred_by = None # User cannot refer themselves
+                referred_by = None
         except ValueError:
             pass
-
     await db.add_user(user_id, username, first_name, last_name, language_code, referred_by)
     user = await db.get_user(user_id)
-
     if referred_by and referred_by != user_id:
         await db.add_referral(referred_by, user_id)
         await db.increment_referrals_count(referred_by)
-        # Check if referrer gets premium
         referrer = await db.get_user(referred_by)
         if referrer and referrer["referrals_count"] >= 3 and not referrer["is_premium"]:
             premium_until = datetime.now() + timedelta(days=7)
             await db.update_user_premium(referred_by, True, premium_until)
-            await message.bot.send_message(referred_by, get_message(referrer["language_code"], "referrer_premium_granted"))
-
+            await message.bot.send_message(
+                referred_by,
+                get_message(referrer["language_code"], "referrer_premium_granted")
+            )
     if user and user["is_premium"]:
         welcome_text = get_message(language_code, "welcome_premium", first_name)
     else:
         welcome_text = get_message(language_code, "welcome", first_name, user["daily_limit"] if user else 10)
-
-    await message.answer(welcome_text)
+    await message.answer(welcome_text, reply_markup=main_menu(language_code))
     await state.set_state(UserStates.chatting)
+
+@user_router.message(Command("help"))
+async def cmd_help(message: Message):
+    lang = await _user_lang(message.from_user.id)
+    await message.answer(get_message(lang, "help"), reply_markup=main_menu(lang))
+
+@user_router.message(Command("clear"))
+async def cmd_clear(message: Message):
+    user_id = message.from_user.id
+    lang = await _user_lang(user_id)
+    await db.clear_conversation_history(user_id)
+    await message.answer(get_message(lang, "cleared"))
+
+@user_router.message(Command("lang"))
+async def cmd_lang(message: Message):
+    lang = await _user_lang(message.from_user.id)
+    await message.answer(get_message(lang, "choose_lang"), reply_markup=lang_keyboard())
+
+@user_router.callback_query(F.data.startswith("setlang_"))
+async def cb_set_lang(callback: CallbackQuery):
+    new_lang = callback.data.split("_", 1)[1]
+    if new_lang not in MESSAGE_MAP:
+        new_lang = "en"
+    await db.set_user_language(callback.from_user.id, new_lang)
+    await callback.message.answer(
+        get_message(new_lang, "lang_set"),
+        reply_markup=main_menu(new_lang)
+    )
+    await callback.answer()
+
+@user_router.message(Command("bonus"))
+async def cmd_bonus(message: Message):
+    user_id = message.from_user.id
+    lang = await _user_lang(user_id)
+    user = await db.get_user(user_id)
+    if not user:
+        await message.answer(get_message(lang, "not_registered"))
+        return
+    granted = await db.claim_daily_bonus(user_id, DAILY_BONUS)
+    if granted:
+        await message.answer(get_message(lang, "bonus_claimed", DAILY_BONUS))
+    else:
+        await message.answer(get_message(lang, "bonus_already"))
+
+@user_router.message(Command("promo"))
+async def cmd_promo(message: Message, command: CommandObject):
+    user_id = message.from_user.id
+    lang = await _user_lang(user_id)
+    if not command.args:
+        await message.answer(get_message(lang, "promo_usage"))
+        return
+    code = command.args.strip().split()[0]
+    result = await db.redeem_promo(user_id, code)
+    if result is None:
+        await message.answer(get_message(lang, "promo_invalid"))
+    elif result == "already":
+        await message.answer(get_message(lang, "promo_already"))
+    else:
+        await message.answer(get_message(
+            lang, "promo_success",
+            result.get("premium_days", 0), result.get("extra_requests", 0)
+        ))
+    await state.clear()
 
 @user_router.message(Command("premium"))
 async def cmd_premium(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     language_code = user["language_code"] if user else "en"
-
-    if user and user["is_premium"] and user["premium_until"] and datetime.strptime(str(user["premium_until"]), "%Y-%m-%d %H:%M:%S.%f") > datetime.now():
-        premium_until = datetime.strptime(str(user["premium_until"]), "%Y-%m-%d %H:%M:%S.%f").strftime("%Y-%m-%d %H:%M")
-        await message.answer(get_message(language_code, "premium_exists", premium_until))
-        return
-
+    if user and user["is_premium"] and user["premium_until"]:
+        try:
+            until_dt = datetime.strptime(str(user["premium_until"]), "%Y-%m-%d %H:%M:%S.%f")
+            if until_dt > datetime.now():
+                await message.answer(
+                    get_message(language_code, "premium_exists", until_dt.strftime("%Y-%m-%d %H:%M"))
+                )
+                return
+        except ValueError:
+            pass
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=get_message(language_code, "7_days"), callback_data="buy_premium_7_days")],
         [types.InlineKeyboardButton(text=get_message(language_code, "1_month"), callback_data="buy_premium_1_month")],
@@ -213,11 +360,8 @@ async def process_premium_purchase(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user = await db.get_user(user_id)
     language_code = user["language_code"] if user else "en"
-
     period_data = callback.data.split("_")
     period_value = period_data[2]
-    period_unit = period_data[3] if len(period_data) > 3 else "days"
-    
     amount = 50
     period_str = "7 days"
     if period_value == "1":
@@ -226,13 +370,10 @@ async def process_premium_purchase(callback: CallbackQuery, state: FSMContext):
     elif period_value == "3":
         amount = 350
         period_str = "3 months"
-
     payment_id = await db.add_payment(user_id, amount, period_str)
-    
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=get_message(language_code, "paid_button"), callback_data=f"confirm_payment_{payment_id}")]
     ])
-    
     await callback.message.answer(
         get_message(language_code, "payment_info", period_str, amount, SPB_PAYMENT_LINK),
         reply_markup=keyboard
@@ -245,11 +386,8 @@ async def confirm_payment(callback: CallbackQuery, state: FSMContext):
     user = await db.get_user(user_id)
     language_code = user["language_code"] if user else "en"
     payment_id = int(callback.data.split("_")[2])
-    
     await db.update_payment_status(payment_id, "pending")
     await callback.message.answer(get_message(language_code, "payment_received"))
-    
-    # Notify admin
     payment = await db.get_payment(payment_id)
     admin_kb = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"admin_approve_{payment_id}")],
@@ -263,41 +401,38 @@ async def confirm_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @user_router.message(Command("balance"))
+@user_router.message(F.text.in_(BTN_BALANCE))
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     if not user:
         await message.answer("Not registered. /start")
         return
-    
     language_code = user["language_code"]
     status = "Premium 🚀" if user["is_premium"] else "Free 🆓"
     daily_limit = get_message(language_code, "unlimited") if user["is_premium"] else user["daily_limit"]
     premium_until = user["premium_until"] if user["is_premium"] else "N/A"
-    
     await message.answer(get_message(language_code, "balance_info", status, daily_limit, premium_until))
 
 @user_router.message(Command("referral"))
+@user_router.message(F.text.in_(BTN_REF))
 async def cmd_referral(message: Message):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    if not user:
-        return
-    
+    if not user: return
     bot_info = await message.bot.get_me()
     referral_link = f"https://t.me/{bot_info.username}?start={user_id}"
     await message.answer(get_message(user["language_code"], "referral_info", referral_link, user["referrals_count"]))
 
 @user_router.message(Command("image"))
+@user_router.message(F.text.in_(BTN_IMAGE))
 async def cmd_image(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     if not user: return
-    
     if not user["is_premium"]:
         await message.answer(get_message(user["language_code"], "premium_only_feature"))
         return
-    
     await message.answer(get_message(user["language_code"], "image_prompt_request"))
     await state.set_state(UserStates.waiting_for_image_prompt)
 
@@ -306,49 +441,55 @@ async def process_image_prompt(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     prompt = message.text
-    
     await message.answer(get_message(user["language_code"], "image_generating"))
     image_url = await generate_image(prompt)
-    
     if image_url.startswith("http"):
         await message.answer_photo(image_url, caption=get_message(user["language_code"], "image_ready"))
     else:
         await message.answer(get_message(user["language_code"], "image_error", image_url))
-    
     await state.set_state(UserStates.chatting)
+
+@user_router.message(F.text.in_(BTN_HELP))
+async def menu_help(message: Message):
+    await cmd_help(message)
+
+@user_router.message(F.text.in_(BTN_CLEAR))
+async def menu_clear(message: Message):
+    await cmd_clear(message)
+
+@user_router.message(F.text.in_(BTN_LANG))
+async def menu_lang(message: Message):
+    await cmd_lang(message)
+
+@user_router.message(F.text.in_(BTN_BONUS))
+async def menu_bonus(message: Message):
+    await cmd_bonus(message)
+
+@user_router.message(F.text.in_(BTN_PREMIUM))
+async def menu_premium(message: Message, state: FSMContext):
+    await cmd_premium(message, state)
 
 @user_router.message(F.text)
 async def handle_chat(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    
     if not user:
         await message.answer("Please /start first.")
         return
-
     if user["is_blocked"]:
         await message.answer(get_message(user["language_code"], "user_blocked_user"))
         return
-
     if not user["is_premium"] and user["daily_limit"] <= 0:
         await message.answer(get_message(user["language_code"], "daily_limit_exceeded"))
         return
-
-    # Get chat history
     history = await db.get_chat_history(user_id)
     messages = []
     for h in history:
-        messages.append({"role": "user", "content": h["user_message"]})
-        messages.append({"role": "assistant", "content": h["bot_message"]})
-    
+        messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": message.text})
-    
-    sent_msg = await message.answer(get_message(user["language_code"], "awaiting_response"))
-    
+    await message.bot.send_chat_action(chat_id=user_id, action=ChatAction.TYPING)
     response = await get_chat_response(messages)
-    
-    await sent_msg.edit_text(response)
+    await _send_long(message, response)
     await db.add_chat_history(user_id, message.text, response)
-    
     if not user["is_premium"]:
         await db.decrement_daily_limit(user_id)
