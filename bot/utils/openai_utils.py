@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import urllib.parse
 import base64
 import aiohttp
@@ -23,17 +22,19 @@ SYSTEM_PROMPT = (
 )
 
 async def get_free_ai_response(prompt: str) -> str:
-    """Agar OpenAI kvotasi tugasa, bepul modeldan foydalanish (Pollinations)"""
+    """Bepul modeldan foydalanish (Pollinations)"""
     try:
         encoded_prompt = urllib.parse.quote(prompt)
+        # Tizim promptini ham qo'shamiz
         url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(SYSTEM_PROMPT)}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, timeout=30) as resp:
                 if resp.status == 200:
                     return await resp.text()
-        return "⚠️ Hozirda barcha tizimlar band. Birozdan so'ng urinib ko'ring."
+        return "⚠️ Bepul AI xizmati vaqtincha ishlamayapti. Birozdan so'ng urinib ko'ring."
     except Exception as e:
-        return f"⚠️ Xatolik yuz berdi: {str(e)}"
+        logger.error(f"Free AI error: {e}")
+        return "⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
 
 async def web_search(query: str) -> str:
     try:
@@ -47,36 +48,34 @@ async def web_search(query: str) -> str:
         return "Qidiruvda xatolik yuz berdi."
 
 async def get_chat_response(messages: list, use_web=False) -> str:
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "None":
-        # Agar kalit bo'lmasa, bepul modelga o'tamiz
-        last_msg = messages[-1]["content"]
-        return await get_free_ai_response(last_msg)
+    # Eng oxirgi foydalanuvchi xabari
+    user_msg = messages[-1]["content"]
+
+    # Agar API kalit umuman yo'q bo'lsa, srazu bepulga o'tamiz
+    if not OPENAI_API_KEY or len(str(OPENAI_API_KEY)) < 10:
+        return await get_free_ai_response(user_msg)
 
     try:
+        # Internet qidiruvi mantiqi
         if use_web:
-            last_query = messages[-1]["content"]
-            search_data = await web_search(last_query)
+            search_data = await web_search(user_msg)
             messages.append({"role": "system", "content": f"Internetdan qidiruv natijalari:\n{search_data}"})
 
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        
+        # OpenAI ga so'rov yuboramiz
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
             messages=full_messages,
             max_tokens=2000,
             temperature=0.7,
+            timeout=45 # Kutish vaqti
         )
         return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"OpenAI Error: {e}")
-        error_str = str(e)
-        
-        # AGAR KVOTA TUGAGAN BO'LSA, BEPUL MODELGA O'TAMIZ
-        if "insufficient_quota" in error_str:
-            logger.info("Kvota tugadi, bepul modelga o'tilmoqda...")
-            last_msg = messages[-1]["content"]
-            return await get_free_ai_response(last_msg)
-            
-        return f"⚠️ OpenAI xatosi: {error_str}"
+        # HAR QANDAY XATOLIKDA (Kvota, API kalit, va hokazo) BEPUL MODELGA O'TAMIZ
+        logger.error(f"OpenAI xatosi yuz berdi: {e}. Bepul modelga o'tilmoqda...")
+        return await get_free_ai_response(user_msg)
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
@@ -98,12 +97,11 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        # Vision uchun bepul muqobil hozircha yo'q, shuning uchun xatoni qaytaramiz
-        return f"⚠️ Rasmni tahlil qilishda kvota yetmadi: {str(e)}"
+        # Vision uchun bepul muqobil yo'q, lekin xatoni chiroyli ko'rsatamiz
+        return "⚠️ Rasmni tahlil qilish uchun OpenAI kvotasi yetarli emas."
 
 async def generate_image(prompt: str) -> str:
     try:
-        # Kvota bo'lsa DALL-E 3
         response = await client.images.generate(
             model="dall-e-3",
             prompt=prompt,
@@ -112,8 +110,7 @@ async def generate_image(prompt: str) -> str:
         )
         return response.data[0].url
     except Exception as e:
-        # Kvota tugasa bepul Pollinations.ai
-        logger.info("DALL-E kvotasi tugadi, Pollinations'ga o'tilmoqda...")
+        # DALL-E ishlamasa, srazu Pollinations rasm generatoriga
         encoded = urllib.parse.quote(prompt)
         return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
 
@@ -141,5 +138,4 @@ async def analyze_document(text: str, query: str) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        # Hujjat tahlili uchun ham bepul modelga o'tish mumkin
-        return await get_free_ai_response(f"Hujjat: {text[:2000]}\n\nSavol: {query}")
+        return await get_free_ai_response(f"Hujjat tahlili (Savol: {query}): {text[:2000]}")
