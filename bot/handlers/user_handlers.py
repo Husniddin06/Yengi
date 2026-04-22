@@ -348,12 +348,40 @@ async def cmd_premium(message: Message, state: FSMContext):
                 return
         except ValueError:
             pass
+    # Narx tugmalarini bosganda to'g'ridan-to'g'ri saytga (Sber link) o'tib ketadigan qilamiz
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text=get_message(language_code, "7_days"), callback_data="buy_premium_7_days")],
-        [types.InlineKeyboardButton(text=get_message(language_code, "1_month"), callback_data="buy_premium_1_month")],
-        [types.InlineKeyboardButton(text=get_message(language_code, "3_months"), callback_data="buy_premium_3_months")]
+        [types.InlineKeyboardButton(text=get_message(language_code, "7_days"), url=SPB_PAYMENT_LINK)],
+        [types.InlineKeyboardButton(text=get_message(language_code, "1_month"), url=SPB_PAYMENT_LINK)],
+        [types.InlineKeyboardButton(text=get_message(language_code, "3_months"), url=SPB_PAYMENT_LINK)],
+        [types.InlineKeyboardButton(text=get_message(language_code, "paid_button"), callback_data="manual_payment_confirm")]
     ])
     await message.answer(get_message(language_code, "choose_premium"), reply_markup=keyboard)
+
+@user_router.callback_query(F.data == "manual_payment_confirm")
+async def manual_payment_confirm(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    language_code = user["language_code"] if user else "en"
+    
+    # Foydalanuvchidan qaysi paketni sotib olganini so'rash yoki standart 1 oylik deb hisoblash
+    # Bu yerda biz shunchaki admin xabar yuboramiz
+    payment_id = await db.add_payment(user_id, 0, "Manual Check")
+    await db.update_payment_status(payment_id, "pending")
+    
+    await callback.message.answer(get_message(language_code, "payment_received"))
+    
+    admin_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Approve 1 Month", callback_data=f"admin_approve_manual_{user_id}_1_month")],
+        [types.InlineKeyboardButton(text="Approve 7 Days", callback_data=f"admin_approve_manual_{user_id}_7_days")],
+        [types.InlineKeyboardButton(text="Reject", callback_data=f"admin_reject_manual_{user_id}")]
+    ])
+    
+    await callback.bot.send_message(
+        ADMIN_ID,
+        f"Manual Payment Confirmation Required 💰\nUser: @{user['username']}\nID: {user_id}",
+        reply_markup=admin_kb
+    )
+    await callback.answer()
 
 @user_router.callback_query(F.data.startswith("buy_premium_"))
 async def process_premium_purchase(callback: CallbackQuery, state: FSMContext):

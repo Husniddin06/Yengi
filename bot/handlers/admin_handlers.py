@@ -206,3 +206,30 @@ async def cmd_add_promo(message: Message):
         f"Qo'shimcha so'rov: +{reqs}\n"
         f"Ishlatish soni: {uses}"
     )
+
+@admin_router.callback_query(F.data.startswith("admin_approve_manual_"), F.from_user.id == ADMIN_ID)
+async def admin_approve_manual(callback: CallbackQuery):
+    data = callback.data.split("_")
+    user_id = int(data[3])
+    period = data[4] # "1" or "7"
+    unit = data[5] # "month" or "days"
+    
+    premium_until = datetime.now()
+    if unit == "month":
+        premium_until += timedelta(days=30)
+    else:
+        premium_until += timedelta(days=7)
+        
+    await db.update_user_premium(user_id, True, premium_until)
+    await callback.message.edit_text(f"✅ Manual payment approved for user {user_id} ({period} {unit}).")
+    
+    user = await db.get_user(user_id)
+    user_lang = user["language_code"] if user else "en"
+    await callback.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", premium_until.strftime("%Y-%m-%d %H:%M")))
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_reject_manual_"), F.from_user.id == ADMIN_ID)
+async def admin_reject_manual(callback: CallbackQuery):
+    user_id = int(callback.data.split("_")[3])
+    await callback.message.edit_text(f"❌ Manual payment rejected for user {user_id}.")
+    await callback.answer()
