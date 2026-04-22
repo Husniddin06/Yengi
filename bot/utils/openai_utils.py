@@ -9,7 +9,15 @@ from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+# OpenRouter settings
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+CHAT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+
+# OpenRouter client — OpenAI SDK bilan mos ishlaydi
+client = AsyncOpenAI(
+    api_key=OPENAI_API_KEY,
+    base_url=OPENROUTER_BASE_URL,
+)
 
 SYSTEM_PROMPT = (
     "Sen SmartAI — kuchli va aqlli AI assistantsan. "
@@ -23,17 +31,18 @@ SYSTEM_PROMPT = (
 
 
 async def get_chat_response(messages: list) -> str:
+    """OpenRouter orqali AI chat javobini olish."""
     try:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
         response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=CHAT_MODEL,
             messages=full_messages,
             max_tokens=2048,
             temperature=0.7,
         )
         return response.choices[0].message.content
     except OpenAIError as e:
-        logger.error(f"OpenAI API error: {e}")
+        logger.error(f"OpenRouter API error: {e}")
         return f"⚠️ AI xatosi: {e}"
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -41,17 +50,8 @@ async def get_chat_response(messages: list) -> str:
 
 
 async def generate_image(prompt: str) -> str:
-    try:
-        response = await client.images.generate(
-            model="dall-e-2",
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
-        )
-        return response.data[0].url
-    except OpenAIError as e:
-        logger.error(f"OpenAI Image API error: {e}")
-        return f"⚠️ Rasm yaratish xatosi: {e}"
-    except Exception as e:
-        logger.error(f"Unexpected image error: {e}")
-        return f"⚠️ Kutilmagan xato: {e}"
+    """Rasm yaratish — hozircha mavjud emas."""
+    return (
+        "Error: Rasm yaratish funksiyasi hozircha mavjud emas. "
+        "OpenRouter faqat matnli modellarni qo'llab-quvvatlaydi."
+    )
