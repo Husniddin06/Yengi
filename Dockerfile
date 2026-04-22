@@ -4,5 +4,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV PYTHONPATH=/app/bot
+# Muhim: PYTHONPATH /app bo'lishi kerak, shunda 'from bot.database import db' kabi importlar ishlaydi
+ENV PYTHONPATH=/app
 CMD ["python", "bot/main.py"]
