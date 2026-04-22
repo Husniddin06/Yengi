@@ -1,38 +1,44 @@
-
 import asyncio
 import logging
+import os
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_webhook
+from aiogram.client.default import DefaultBotProperties
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 from aiohttp import web
 
 from config import BOT_TOKEN, ADMIN_ID
-from database.db import init_db, add_user, get_user
-from handlers.user_handlers import user_router, get_message
+from database.db import init_db
+from handlers.user_handlers import user_router
 from handlers.admin_handlers import admin_router
 
-# Webhook settings
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 WEB_SERVER_HOST = "0.0.0.0"
-WEB_SERVER_PORT = 8000
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = "my-secret"
-BASE_WEBHOOK_URL = "https://your-domain.com" # Replace with your actual domain
+WEB_SERVER_PORT = int(os.getenv("PORT", "8000"))
+WEBHOOK_PATH = f"/webhook/bot/{BOT_TOKEN}"
+BASE_WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-domain.com")
+
 
 async def on_startup(bot: Bot):
     await init_db()
-    await bot.set_webhook(f"{BASE_WEBHOOK_URL}{WEBHOOK_PATH}", secret=WEBHOOK_SECRET)
-    logging.info("Bot started and webhook set!")
+    webhook_url = f"{BASE_WEBHOOK_URL}{WEBHOOK_PATH}"
+    await bot.set_webhook(webhook_url)
+    logger.info(f"Bot started! Webhook set to {webhook_url}")
+
 
 async def on_shutdown(bot: Bot):
-    logging.info("Bot shutting down and webhook deleted!")
+    logger.info("Bot shutting down...")
     await bot.delete_webhook()
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
 
-    bot = Bot(BOT_TOKEN, parse_mode=ParseMode.HTML)
+async def main():
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
     dp = Dispatcher()
 
     dp.include_router(user_router)
@@ -42,15 +48,17 @@ async def main():
     dp.shutdown.register(on_shutdown)
 
     app = web.Application()
-    webhook_requests_handler = SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-        secret_token=WEBHOOK_SECRET,
-    )
-    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-    setup_webhook(app, path=WEBHOOK_PATH)
+    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    webhook_handler.register(app, path=WEBHOOK_PATH)
 
-    web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, WEB_SERVER_HOST, WEB_SERVER_PORT)
+    await site.start()
+
+    logger.info(f"Server started on {WEB_SERVER_HOST}:{WEB_SERVER_PORT}")
+    await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,40 +1,57 @@
-import openai
+import logging
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from openai import AsyncOpenAI, OpenAIError
 from config import OPENAI_API_KEY
 
-openai.api_key = OPENAI_API_KEY
+logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = "Sen SmartAI, kuchli AI assistantsan. Foydalanuvchiga har qanday savol bo'yicha batafsil, aniq va foydali javob ber. Har doim foydalanuvchi tilida javob ber."
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-async def get_chat_response(messages):
+SYSTEM_PROMPT = (
+    "Sen SmartAI — kuchli va aqlli AI assistantsan. "
+    "Foydalanuvchiga har qanday savol bo'yicha batafsil, aniq va foydali javob ber. "
+    "Har doim foydalanuvchi tilida javob ber. "
+    "Agar foydalanuvchi ruscha yozsa — ruscha javob ber. "
+    "Agar inglizcha yozsa — inglizcha javob ber. "
+    "Agar o'zbekcha yozsa — o'zbekcha javob ber. "
+    "Javoblar professional, tushunarli va to'liq bo'lsin."
+)
+
+
+async def get_chat_response(messages: list) -> str:
     try:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        response = await openai.ChatCompletion.acreate(
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=full_messages
+            messages=full_messages,
+            max_tokens=2048,
+            temperature=0.7,
         )
         return response.choices[0].message.content
-    except openai.error.RateLimitError:
-        return "Error: Too many requests. Please try again later." # Or a localized message
-    except openai.error.AuthenticationError:
-        return "Error: OpenAI API key is invalid." # Or a localized message
-    except openai.error.APIError as e:
-        return f"Error: OpenAI API error: {e}" # Or a localized message
+    except OpenAIError as e:
+        logger.error(f"OpenAI API error: {e}")
+        return f"⚠️ AI xatosi: {e}"
     except Exception as e:
-        return f"Error: An unexpected error occurred: {e}"
+        logger.error(f"Unexpected error: {e}")
+        return f"⚠️ Kutilmagan xato: {e}"
 
-async def generate_image(prompt):
+
+async def generate_image(prompt: str) -> str:
     try:
-        response = await openai.Image.acreate(
+        response = await client.images.generate(
+            model="dall-e-2",
             prompt=prompt,
             n=1,
-            size="1024x1024"
+            size="1024x1024",
         )
         return response.data[0].url
-    except openai.error.RateLimitError:
-        return "Error: Too many image generation requests. Please try again later." # Or a localized message
-    except openai.error.AuthenticationError:
-        return "Error: OpenAI API key is invalid for image generation." # Or a localized message
-    except openai.error.APIError as e:
-        return f"Error: OpenAI API image error: {e}" # Or a localized message
+    except OpenAIError as e:
+        logger.error(f"OpenAI Image API error: {e}")
+        return f"⚠️ Rasm yaratish xatosi: {e}"
     except Exception as e:
-        return f"Error: An unexpected error occurred during image generation: {e}"
+        logger.error(f"Unexpected image error: {e}")
+        return f"⚠️ Kutilmagan xato: {e}"
