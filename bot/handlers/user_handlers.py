@@ -1,7 +1,6 @@
-
-from aiogram import Router, F
+from aiogram import Router, F, types
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
@@ -102,6 +101,40 @@ EN_MESSAGES = {
     "paid_button": "I have paid"
 }
 
+ADMIN_MESSAGES = {
+    "admin_welcome": lambda: "Admin panel: 👇",
+    "stats_button": lambda: "📊 Statistics",
+    "broadcast_button": lambda: "📣 Broadcast",
+    "payments_button": lambda: "💳 Pending payments",
+    "user_management_button": lambda: "👥 User management",
+    "admin_stats": lambda total_users, premium_users: f"Total users: {total_users}\nPremium users: {premium_users}",
+    "broadcast_prompt": lambda: "Send the message to broadcast to all users:",
+    "broadcast_sent": lambda: "Broadcast sent. ✅",
+    "no_pending_payments": lambda: "No pending payments.",
+    "new_payment_admin": lambda user_id, username, amount, period, payment_id: (
+        f"New payment 💰\nUser ID: {user_id}\nUsername: @{username}\n"
+        f"Amount: {amount} RUB\nPeriod: {period}\nPayment ID: {payment_id}"
+    ),
+    "approve_button": lambda: "✅ Approve",
+    "reject_button": lambda: "❌ Reject",
+    "payment_approved_admin": lambda payment_id, user_id: f"Payment {payment_id} approved for user {user_id}.",
+    "payment_rejected_admin": lambda payment_id: f"Payment {payment_id} rejected.",
+    "give_premium_button": lambda: "🎁 Give premium",
+    "block_user_button": lambda: "🚫 Block user",
+    "unblock_user_button": lambda: "✅ Unblock user",
+    "user_management_welcome": lambda: "User management: 👇",
+    "give_premium_prompt": lambda: "Send the user ID to grant 30 days of premium:",
+    "premium_given_admin": lambda user_id: f"Premium granted to user {user_id}. 🎉",
+    "user_not_found": lambda: "User not found.",
+    "invalid_user_id": lambda: "Invalid user ID.",
+    "block_user_prompt": lambda: "Send the user ID to block:",
+    "user_blocked_admin": lambda user_id: f"User {user_id} blocked.",
+    "user_blocked_user": lambda: "Your account has been blocked by the administrator. 🚫",
+    "unblock_user_prompt": lambda: "Send the user ID to unblock:",
+    "user_unblocked_admin": lambda user_id: f"User {user_id} unblocked.",
+    "user_unblocked_user": lambda: "Your account has been unblocked. ✅",
+}
+
 MESSAGE_MAP = {
     "uz": UZ_MESSAGES,
     "ru": RU_MESSAGES,
@@ -109,11 +142,17 @@ MESSAGE_MAP = {
 }
 
 def get_message(lang_code, key, *args, **kwargs):
-    return MESSAGE_MAP.get(lang_code, EN_MESSAGES).get(key, EN_MESSAGES[key])(*args, **kwargs)
+    lang_dict = MESSAGE_MAP.get(lang_code, EN_MESSAGES)
+    value = lang_dict.get(key) or EN_MESSAGES.get(key) or ADMIN_MESSAGES.get(key)
+    if value is None:
+        return key
+    if callable(value):
+        return value(*args, **kwargs)
+    return value
 
 
 @user_router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, command: CommandObject, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
     first_name = message.from_user.first_name
@@ -121,9 +160,10 @@ async def cmd_start(message: Message, state: FSMContext):
     language_code = message.from_user.language_code if message.from_user.language_code in MESSAGE_MAP else "en"
 
     referred_by = None
-    if message.get_args():
+    args = command.args
+    if args:
         try:
-            referred_by = int(message.get_args())
+            referred_by = int(args)
             if referred_by == user_id:
                 referred_by = None # User cannot refer themselves
         except ValueError:
@@ -177,179 +217,138 @@ async def process_premium_purchase(callback: CallbackQuery, state: FSMContext):
     period_data = callback.data.split("_")
     period_value = period_data[2]
     period_unit = period_data[3] if len(period_data) > 3 else "days"
-
-    amount = 0
-    period_str = ""
-    if period_value == "7" and period_unit == "days":
-        amount = 50
-        period_str = get_message(language_code, "7_days").split(" (")[0]
-    elif period_value == "1" and period_unit == "month":
+    
+    amount = 50
+    period_str = "7 days"
+    if period_value == "1":
         amount = 150
-        period_str = get_message(language_code, "1_month").split(" (")[0]
-    elif period_value == "3" and period_unit == "months":
+        period_str = "1 month"
+    elif period_value == "3":
         amount = 350
-        period_str = get_message(language_code, "3_months").split(" (")[0]
-    else:
-        await callback.message.answer(get_message(language_code, "error_occurred"))
-        await callback.answer()
-        return
+        period_str = "3 months"
 
-    payment_text = get_message(language_code, "payment_info", period_str, amount, SPB_PAYMENT_LINK)
-
+    payment_id = await db.add_payment(user_id, amount, period_str)
+    
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text=get_message(language_code, "paid_button"), callback_data=f"payment_done_{amount}_{period_value}_{period_unit}")]
+        [types.InlineKeyboardButton(text=get_message(language_code, "paid_button"), callback_data=f"confirm_payment_{payment_id}")]
     ])
-
-    await callback.message.answer(payment_text, reply_markup=keyboard)
-    await state.set_state(UserStates.waiting_for_payment_confirmation)
+    
+    await callback.message.answer(
+        get_message(language_code, "payment_info", period_str, amount, SPB_PAYMENT_LINK),
+        reply_markup=keyboard
+    )
     await callback.answer()
 
-@user_router.callback_query(F.data.startswith("payment_done_"), UserStates.waiting_for_payment_confirmation)
-async def payment_done(callback: CallbackQuery, state: FSMContext):
+@user_router.callback_query(F.data.startswith("confirm_payment_"))
+async def confirm_payment(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user = await db.get_user(user_id)
     language_code = user["language_code"] if user else "en"
-
-    data = callback.data.split("_")
-    amount = float(data[2])
-    period_value = data[3]
-    period_unit = data[4]
-    period = f"{period_value} {period_unit}"
-
-    payment_id = await db.add_payment(user_id, amount, "RUB", "pending", period)
-
+    payment_id = int(callback.data.split("_")[2])
+    
+    await db.update_payment_status(payment_id, "pending")
     await callback.message.answer(get_message(language_code, "payment_received"))
-    await callback.answer()
-    await state.set_state(UserStates.chatting)
-
+    
     # Notify admin
-    admin_message = (
-        f"Yangi to'lov! 💰\n"
-        f"User ID: {user_id}\n"
-        f"Username: @{callback.from_user.username if callback.from_user.username else 'N/A'}\n"
-        f"Miqdor: {amount} RUB\n"
-        f"Davr: {period}\n"
-        f"To'lov ID: {payment_id}"
-    )
-    approve_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"approve_payment_{payment_id}_{user_id}_{period_value}_{period_unit}")],
-        [types.InlineKeyboardButton(text=get_message("en", "reject_button"), callback_data=f"reject_payment_{payment_id}")]
+    payment = await db.get_payment(payment_id)
+    admin_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"admin_approve_{payment_id}")],
+        [types.InlineKeyboardButton(text=get_message("en", "reject_button"), callback_data=f"admin_reject_{payment_id}")]
     ])
-    await callback.bot.send_message(ADMIN_ID, admin_message, reply_markup=approve_keyboard)
+    await callback.bot.send_message(
+        ADMIN_ID,
+        get_message("en", "new_payment_admin", user_id, user["username"], payment["amount"], payment["period"], payment_id),
+        reply_markup=admin_kb
+    )
+    await callback.answer()
 
 @user_router.message(Command("balance"))
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    if user:
-        status = "Premium" if user["is_premium"] else "Free"
-        premium_until_str = "Yo'q"
-        if user["premium_until"]:
-            premium_until = datetime.strptime(str(user["premium_until"]), "%Y-%m-%d %H:%M:%S.%f")
-            premium_until_str = premium_until.strftime("%Y-%m-%d %H:%M")
-
-        daily_limit_display = user["daily_limit"] if not user["is_premium"] else get_message(language_code, "unlimited")
-
-        await message.answer(
-            get_message(language_code, "balance_info", status=status, daily_limit=daily_limit_display, premium_until=premium_until_str)
-        )
-    else:
-        await message.answer(get_message(language_code, "not_registered"))
+    if not user:
+        await message.answer("Not registered. /start")
+        return
+    
+    language_code = user["language_code"]
+    status = "Premium 🚀" if user["is_premium"] else "Free 🆓"
+    daily_limit = get_message(language_code, "unlimited") if user["is_premium"] else user["daily_limit"]
+    premium_until = user["premium_until"] if user["is_premium"] else "N/A"
+    
+    await message.answer(get_message(language_code, "balance_info", status, daily_limit, premium_until))
 
 @user_router.message(Command("referral"))
 async def cmd_referral(message: Message):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    referral_link = f"https://t.me/SmartAiibot?start={user_id}"
-    referrals_count = user["referrals_count"] if user else 0
-
-    await message.answer(
-        get_message(language_code, "referral_info", link=referral_link, count=referrals_count)
-    )
-
-@user_router.message(F.text, UserStates.chatting)
-async def handle_text_message(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
     if not user:
-        await message.answer(get_message(language_code, "not_registered"))
         return
-
-    if user["is_premium"] or user["daily_limit"] > 0:
-        await message.answer(get_message(language_code, "awaiting_response"))
-        
-        # Get conversation history
-        history = await db.get_conversation_history(user_id, limit=10) # Last 10 messages for context
-        messages_for_openai = []
-        for msg in history:
-            messages_for_openai.append({"role": msg["role"], "content": msg["content"]})
-        messages_for_openai.append({"role": "user", "content": message.text})
-
-        response = await get_chat_response(messages_for_openai)
-        await message.answer(response)
-
-        # Save conversation history
-        await db.add_conversation_message(user_id, "user", message.text)
-        await db.add_conversation_message(user_id, "assistant", response)
-
-        if not user["is_premium"]:
-            await db.update_user_daily_limit(user_id, user["daily_limit"] - 1)
-    else:
-        await message.answer(get_message(language_code, "daily_limit_exceeded"))
-
-@user_router.message(F.photo, UserStates.chatting)
-async def handle_photo_message(message: Message):
-    user_id = message.from_user.id
-    user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    if not user or not user["is_premium"]:
-        await message.answer(get_message(language_code, "premium_only_feature"))
-        return
-
-    await message.answer(get_message(language_code, "premium_only_feature")) # Placeholder for actual file analysis logic.
-
-@user_router.message(F.document, UserStates.chatting)
-async def handle_document_message(message: Message):
-    user_id = message.from_user.id
-    user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    if not user or not user["is_premium"]:
-        await message.answer(get_message(language_code, "premium_only_feature"))
-        return
-
-    await message.answer(get_message(language_code, "premium_only_feature")) # Placeholder for actual file analysis logic.
+    
+    bot_info = await message.bot.get_me()
+    referral_link = f"https://t.me/{bot_info.username}?start={user_id}"
+    await message.answer(get_message(user["language_code"], "referral_info", referral_link, user["referrals_count"]))
 
 @user_router.message(Command("image"))
 async def cmd_image(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    if not user or not user["is_premium"]:
-        await message.answer(get_message(language_code, "premium_only_feature"))
+    if not user: return
+    
+    if not user["is_premium"]:
+        await message.answer(get_message(user["language_code"], "premium_only_feature"))
         return
-
-    await message.answer(get_message(language_code, "image_prompt_request"))
+    
+    await message.answer(get_message(user["language_code"], "image_prompt_request"))
     await state.set_state(UserStates.waiting_for_image_prompt)
 
-@user_router.message(UserStates.waiting_for_image_prompt, F.text)
-async def generate_image_prompt(message: Message, state: FSMContext):
+@user_router.message(UserStates.waiting_for_image_prompt)
+async def process_image_prompt(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-
-    await message.answer(get_message(language_code, "image_generating"))
-    image_url = await generate_image(message.text)
-    if image_url.startswith("Error"):
-        await message.answer(get_message(language_code, "image_error", error=image_url))
+    prompt = message.text
+    
+    await message.answer(get_message(user["language_code"], "image_generating"))
+    image_url = await generate_image(prompt)
+    
+    if image_url.startswith("http"):
+        await message.answer_photo(image_url, caption=get_message(user["language_code"], "image_ready"))
     else:
-        await message.answer_photo(photo=image_url, caption=get_message(language_code, "image_ready"))
+        await message.answer(get_message(user["language_code"], "image_error", image_url))
+    
     await state.set_state(UserStates.chatting)
+
+@user_router.message(F.text)
+async def handle_chat(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    
+    if not user:
+        await message.answer("Please /start first.")
+        return
+
+    if user["is_blocked"]:
+        await message.answer(get_message(user["language_code"], "user_blocked_user"))
+        return
+
+    if not user["is_premium"] and user["daily_limit"] <= 0:
+        await message.answer(get_message(user["language_code"], "daily_limit_exceeded"))
+        return
+
+    # Get chat history
+    history = await db.get_chat_history(user_id)
+    messages = []
+    for h in history:
+        messages.append({"role": "user", "content": h["user_message"]})
+        messages.append({"role": "assistant", "content": h["bot_message"]})
+    
+    messages.append({"role": "user", "content": message.text})
+    
+    sent_msg = await message.answer(get_message(user["language_code"], "awaiting_response"))
+    
+    response = await get_chat_response(messages)
+    
+    await sent_msg.edit_text(response)
+    await db.add_chat_history(user_id, message.text, response)
+    
+    if not user["is_premium"]:
+        await db.decrement_daily_limit(user_id)

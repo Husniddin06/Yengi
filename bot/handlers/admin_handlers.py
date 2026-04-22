@@ -1,5 +1,4 @@
-
-from aiogram import Router, F
+from aiogram import Router, F, types
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -35,7 +34,7 @@ async def admin_stats(callback: CallbackQuery):
     total_users = await db.get_total_users()
     premium_users = await db.get_premium_users_count()
 
-    stats_text = get_message("en", "admin_stats", total_users=total_users, premium_users=premium_users)
+    stats_text = get_message("en", "admin_stats", total_users, premium_users)
     await callback.message.answer(stats_text)
     await callback.answer()
 
@@ -52,7 +51,7 @@ async def admin_broadcast_message(message: Message, state: FSMContext):
         try:
             await message.bot.send_message(user["id"], message.text)
         except Exception as e:
-            print(f"Could not send message to user {user["id"]}: {e}")
+            print(f"Could not send message to user {user['id']}: {e}")
     await message.answer(get_message("en", "broadcast_sent"))
     await state.clear()
 
@@ -67,15 +66,15 @@ async def admin_payments(callback: CallbackQuery):
     for payment in pending_payments:
         user = await db.get_user(payment["user_id"])
         admin_message = get_message("en", "new_payment_admin",
-            user_id=payment["user_id"],
-            username=user["username"] if user and user["username"] else "N/A",
-            amount=payment["amount"],
-            period=payment["period"],
-            payment_id=payment["id"]
+            payment["user_id"],
+            user["username"] if user and user["username"] else "N/A",
+            payment["amount"],
+            payment["period"],
+            payment["id"]
         )
         approve_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"approve_payment_{payment["id"]}_{payment["user_id"]}_{payment["period"].split()[0]}_{payment["period"].split()[1]}")],
-            [types.InlineKeyboardButton(text=get_message("en", "reject_button"), callback_data=f"reject_payment_{payment["id"]}")]
+            [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"approve_payment_{payment['id']}_{payment['user_id']}_{payment['period'].split()[0]}_{payment['period'].split()[1]}")],
+            [types.InlineKeyboardButton(text=get_message("en", "reject_button"), callback_data=f"reject_payment_{payment['id']}")]
         ])
         await callback.message.answer(admin_message, reply_markup=approve_keyboard)
     await callback.answer()
@@ -99,10 +98,10 @@ async def approve_payment(callback: CallbackQuery):
     await db.update_payment_status(payment_id, "approved", callback.from_user.id)
     await db.update_user_premium(user_id, True, premium_until)
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(get_message("en", "payment_approved_admin", payment_id=payment_id, user_id=user_id))
+    await callback.message.answer(get_message("en", "payment_approved_admin", payment_id, user_id))
     
     user_lang = (await db.get_user(user_id))["language_code"]
-    await callback.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", until=premium_until.strftime("%Y-%m-%d %H:%M")))
+    await callback.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", premium_until.strftime("%Y-%m-%d %H:%M")))
     await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("reject_payment_"), F.from_user.id == ADMIN_ID)
@@ -110,7 +109,7 @@ async def reject_payment(callback: CallbackQuery):
     payment_id = int(callback.data.split("_")[2])
     await db.update_payment_status(payment_id, "rejected", callback.from_user.id)
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(get_message("en", "payment_rejected_admin", payment_id=payment_id))
+    await callback.message.answer(get_message("en", "payment_rejected_admin", payment_id))
     await callback.answer()
 
 @admin_router.callback_query(F.data == "admin_user_management", F.from_user.id == ADMIN_ID)
@@ -136,10 +135,10 @@ async def admin_give_premium_user_id(message: Message, state: FSMContext):
         user = await db.get_user(user_id)
         if user:
             premium_until = datetime.now() + timedelta(days=30) # Default 30 days premium
-            await db.set_user_premium_status(user_id, True, premium_until)
-            await message.answer(get_message("en", "premium_given_admin", user_id=user_id))
+            await db.update_user_premium(user_id, True, premium_until)
+            await message.answer(get_message("en", "premium_given_admin", user_id))
             user_lang = (await db.get_user(user_id))["language_code"]
-            await message.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", until=premium_until.strftime("%Y-%m-%d %H:%M")))
+            await message.bot.send_message(user_id, get_message(user_lang, "payment_approved_user", premium_until.strftime("%Y-%m-%d %H:%M")))
         else:
             await message.answer(get_message("en", "user_not_found"))
     except ValueError:
@@ -159,7 +158,7 @@ async def admin_block_user_id(message: Message, state: FSMContext):
         user = await db.get_user(user_id)
         if user:
             await db.block_user(user_id)
-            await message.answer(get_message("en", "user_blocked_admin", user_id=user_id))
+            await message.answer(get_message("en", "user_blocked_admin", user_id))
             user_lang = (await db.get_user(user_id))["language_code"]
             await message.bot.send_message(user_id, get_message(user_lang, "user_blocked_user"))
         else:
@@ -181,7 +180,7 @@ async def admin_unblock_user_id(message: Message, state: FSMContext):
         user = await db.get_user(user_id)
         if user:
             await db.unblock_user(user_id)
-            await message.answer(get_message("en", "user_unblocked_admin", user_id=user_id))
+            await message.answer(get_message("en", "user_unblocked_admin", user_id))
             user_lang = (await db.get_user(user_id))["language_code"]
             await message.bot.send_message(user_id, get_message(user_lang, "user_unblocked_user"))
         else:

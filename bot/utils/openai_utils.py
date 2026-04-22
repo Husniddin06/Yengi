@@ -3,17 +3,14 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 from openai import AsyncOpenAI, OpenAIError
 from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-# OpenRouter settings
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-CHAT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+CHAT_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
 
-# OpenRouter client — OpenAI SDK bilan mos ishlaydi
 client = AsyncOpenAI(
     api_key=OPENAI_API_KEY,
     base_url=OPENROUTER_BASE_URL,
@@ -29,9 +26,7 @@ SYSTEM_PROMPT = (
     "Javoblar professional, tushunarli va to'liq bo'lsin."
 )
 
-
 async def get_chat_response(messages: list) -> str:
-    """OpenRouter orqali AI chat javobini olish."""
     try:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
         response = await client.chat.completions.create(
@@ -48,9 +43,7 @@ async def get_chat_response(messages: list) -> str:
         logger.error(f"Unexpected error: {e}")
         return f"⚠️ Kutilmagan xato: {e}"
 
-
 async def generate_image(prompt: str) -> str:
-    """Rasm yaratish — hozircha mavjud emas."""
     return (
         "Error: Rasm yaratish funksiyasi hozircha mavjud emas. "
         "OpenRouter faqat matnli modellarni qo'llab-quvvatlaydi."
