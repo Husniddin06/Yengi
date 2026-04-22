@@ -314,7 +314,7 @@ async def cmd_bonus(message: Message):
         await message.answer(get_message(lang, "bonus_already"))
 
 @user_router.message(Command("promo"))
-async def cmd_promo(message: Message, command: CommandObject):
+async def cmd_promo(message: Message, command: CommandObject, state: FSMContext):
     user_id = message.from_user.id
     lang = await _user_lang(user_id)
     if not command.args:
@@ -383,50 +383,7 @@ async def manual_payment_confirm(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@user_router.callback_query(F.data.startswith("buy_premium_"))
-async def process_premium_purchase(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-    period_data = callback.data.split("_")
-    period_value = period_data[2]
-    amount = 50
-    period_str = "7 days"
-    if period_value == "1":
-        amount = 150
-        period_str = "1 month"
-    elif period_value == "3":
-        amount = 350
-        period_str = "3 months"
-    payment_id = await db.add_payment(user_id, amount, period_str)
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text=get_message(language_code, "paid_button"), callback_data=f"confirm_payment_{payment_id}")]
-    ])
-    await callback.message.answer(
-        get_message(language_code, "payment_info", period_str, amount, SPB_PAYMENT_LINK),
-        reply_markup=keyboard
-    )
-    await callback.answer()
-
-@user_router.callback_query(F.data.startswith("confirm_payment_"))
-async def confirm_payment(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    user = await db.get_user(user_id)
-    language_code = user["language_code"] if user else "en"
-    payment_id = int(callback.data.split("_")[2])
-    await db.update_payment_status(payment_id, "pending")
-    await callback.message.answer(get_message(language_code, "payment_received"))
-    payment = await db.get_payment(payment_id)
-    admin_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text=get_message("en", "approve_button"), callback_data=f"admin_approve_{payment_id}")],
-        [types.InlineKeyboardButton(text=get_message("en", "reject_button"), callback_data=f"admin_reject_{payment_id}")]
-    ])
-    await callback.bot.send_message(
-        ADMIN_ID,
-        get_message("en", "new_payment_admin", user_id, user["username"], payment["amount"], payment["period"], payment_id),
-        reply_markup=admin_kb
-    )
-    await callback.answer()
+# Eski to'lov mantiqi o'chirildi, chunki endi to'g'ridan-to'g'ri URL ishlatilmoqda.
 
 @user_router.message(Command("balance"))
 @user_router.message(F.text.in_(BTN_BALANCE))
