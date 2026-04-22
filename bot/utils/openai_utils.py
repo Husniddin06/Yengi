@@ -10,15 +10,19 @@ from config import OPENAI_API_KEY
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-# Bepul modellar orasida eng barqarorini tanlaymiz
-CHAT_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-lite-preview-02-05:free")
 
-# OpenRouter uchun qo'shimcha sarlavhalar (headers) qo'shamiz
+# Mistral 7B odatda bepul modellar orasida eng barqarori hisoblanadi
+CHAT_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-7b-instruct:free")
+
+# API kalitni tekshirish
+if not OPENAI_API_KEY or OPENAI_API_KEY == "YOUR_OPENROUTER_API_KEY":
+    logger.error("CRITICAL: OPENAI_API_KEY is missing or not set correctly!")
+
 client = AsyncOpenAI(
     api_key=OPENAI_API_KEY,
     base_url=OPENROUTER_BASE_URL,
     default_headers={
-        "HTTP-Referer": "https://github.com/Husniddin06/Yengi", # OpenRouter talabi
+        "HTTP-Referer": "https://github.com/Husniddin06/Yengi",
         "X-Title": "SmartAI Bot",
     }
 )
@@ -31,27 +35,36 @@ SYSTEM_PROMPT = (
 )
 
 async def get_chat_response(messages: list) -> str:
+    # API kalit tekshiruvi
+    if not OPENAI_API_KEY or len(OPENAI_API_KEY) < 10:
+        return "⚠️ Xatolik: API kalit o'rnatilmagan. Iltimos, Replit Secrets bo'limida OPENAI_API_KEY ni sozlang."
+
     try:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
             messages=full_messages,
-            max_tokens=2048,
+            max_tokens=1500,
             temperature=0.7,
         )
+        
+        if not response.choices or not response.choices[0].message.content:
+            return "⚠️ AI javob qaytarmadi. Iltimos, birozdan keyin qayta urinib ko'ring."
+            
         return response.choices[0].message.content
+        
     except OpenAIError as e:
         error_str = str(e)
         logger.error(f"OpenRouter API error: {error_str}")
         
         if "401" in error_str or "User not found" in error_str:
-            return "⚠️ AI xizmati bilan bog'lanishda xatolik (401). Iltimos, API kalitni tekshiring yoki admin bilan bog'laning."
+            return "⚠️ API kalit xatosi (401). Sizning API kalitingiz noto'g'ri yoki muddati tugagan. Yangi kalit olib Replit Secrets'ga qo'shing."
         elif "429" in error_str:
-            return "⚠️ Bepul so'rovlar limiti tugadi. Iltimos, birozdan keyin urinib ko'ring yoki Premium sotib oling. ✨"
+            return "⚠️ Limit tugadi. Bepul modellar uchun kunlik limitga yetdingiz. Premium sotib oling yoki ertaga urinib ko'ring."
         elif "403" in error_str:
-            return "⚠️ AI xizmatiga kirish taqiqlangan (403). Bu odatda API kalit yoki model bilan bog'liq muammo."
+            return "⚠️ Kirish taqiqlangan (403). OpenRouter hisobingizni tekshiring."
             
-        return f"⚠️ AI xatosi: {error_str}"
+        return f"⚠️ AI xizmatida muammo yuz berdi. Keyinroq urinib ko'ring."
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         return f"⚠️ Kutilmagan xato yuz berdi."
