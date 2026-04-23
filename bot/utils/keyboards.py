@@ -51,3 +51,16 @@ def lang_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🇬🇧 English", callback_data="setlang_en")],
         ]
     )
+
+def payment_options_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
+    texts = {
+        "ru": {"sbp": "💳 СБП (75₽)", "stars": "⭐️ Telegram Stars (50 ⭐️)"},
+        "en": {"sbp": "💳 SBP (75₽)", "stars": "⭐️ Telegram Stars (50 ⭐️)"}
+    }
+    L = texts.get(lang, texts["en"])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=L["sbp"], url="https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79990402614&bankCode=100000000111&comment=Premium_1_Month")],
+            [InlineKeyboardButton(text=L["stars"], callback_data="pay_stars_1month")]
+        ]
+    )

@@ -1,17 +1,17 @@
 import os
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bot.database import db
 from bot.utils.openai_utils import get_chat_response, generate_image
 from bot.utils.keyboards import (
-    main_menu, lang_keyboard,
+    main_menu, lang_keyboard, payment_options_keyboard,
     BTN_BALANCE, BTN_CLEAR, BTN_IMAGE, BTN_PREMIUM,
     BTN_HELP, BTN_REF, BTN_LANG, BTN_BONUS,
 )
@@ -27,7 +27,7 @@ TEXTS = {
         "welcome": "Привет! Я умный ИИ бот. Выберите язык или начните общение.",
         "lang_set": "Язык изменен на Русский 🇷🇺",
         "balance": "📊 Ваш баланс: {limit} запросов\n💎 Premium: {premium}",
-        "premium_info": "💎 Premium дает безлимитные запросы и доступ к GPT-4o.\nКупить: {link}",
+        "premium_info": "💎 Premium дает безлимитные запросы и доступ к GPT-4o.\nВыберите способ оплаты:",
         "help": "🆘 Помощь:\n/start - Перезапуск\n/lang - Смена языка\nПросто отправьте текст для общения или нажмите 'Rasm' для генерации.",
         "history_cleared": "🗑 История диалога очищена.",
         "image_prompt": "🎨 Отправьте описание картинки, которую хотите создать.",
@@ -37,12 +37,15 @@ TEXTS = {
         "ref_info": "👥 Приглашайте друзей и получайте бонусы!\nВаша ссылка: {link}\nВсего приглашено: {count}",
         "error": "❌ Произошла ошибка. Попробуйте позже.",
         "no_limit": "❌ У вас закончились запросы. Купите Premium или подождите обновления.",
+        "stars_title": "Premium на 1 месяц",
+        "stars_desc": "Безлимитные запросы и доступ к GPT-4o на 30 дней.",
+        "payment_success": "✅ Оплата прошла успешно! Premium активирован на 30 дней.",
     },
     "en": {
         "welcome": "Hello! I am a smart AI bot. Choose a language or start chatting.",
         "lang_set": "Language set to English 🇬🇧",
         "balance": "📊 Your balance: {limit} requests\n💎 Premium: {premium}",
-        "premium_info": "💎 Premium gives unlimited requests and access to GPT-4o.\nBuy: {link}",
+        "premium_info": "💎 Premium gives unlimited requests and access to GPT-4o.\nChoose payment method:",
         "help": "🆘 Help:\n/start - Restart\n/lang - Change language\nJust send text to start chatting or click 'Image' to generate.",
         "history_cleared": "🗑 Conversation history cleared.",
         "image_prompt": "🎨 Send a description of the image you want to create.",
@@ -52,6 +55,9 @@ TEXTS = {
         "ref_info": "👥 Invite friends and get bonuses!\nYour link: {link}\nTotal invited: {count}",
         "error": "❌ An error occurred. Please try again later.",
         "no_limit": "❌ You have run out of requests. Buy Premium or wait for a reset.",
+        "stars_title": "Premium for 1 Month",
+        "stars_desc": "Unlimited requests and GPT-4o access for 30 days.",
+        "payment_success": "✅ Payment successful! Premium activated for 30 days.",
     }
 }
 
@@ -134,8 +140,36 @@ async def show_ref(message: Message):
 async def show_premium(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    from bot.config import SPB_PAYMENT_LINK
-    await message.answer(TEXTS[lang]["premium_info"].format(link=SPB_PAYMENT_LINK))
+    await message.answer(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang))
+
+@user_router.callback_query(F.data == "pay_stars_1month")
+async def pay_stars(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    prices = [LabeledPrice(label="XTR", amount=50)]
+    await cb.message.answer_invoice(
+        title=TEXTS[lang]["stars_title"],
+        description=TEXTS[lang]["stars_desc"],
+        prices=prices,
+        provider_token="", # Empty for Telegram Stars
+        payload="premium_1month",
+        currency="XTR"
+    )
+    await cb.answer()
+
+@user_router.pre_checkout_query()
+async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+@user_router.message(F.successful_payment)
+async def process_successful_payment(message: Message):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    payload = message.successful_payment.invoice_payload
+    if payload == "premium_1month":
+        new_until = datetime.now() + timedelta(days=30)
+        await db.update_user_premium(message.from_user.id, True, new_until)
+        await message.answer(TEXTS[lang]["payment_success"])
 
 @user_router.message(F.text.in_(BTN_IMAGE))
 async def image_prompt_request(message: Message, state: FSMContext):
