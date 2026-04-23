@@ -34,22 +34,24 @@ MENU_LABELS = {
     },
 }
 
-def main_inline_menu(lang: str = "en") -> InlineKeyboardMarkup:
+def main_reply_menu(lang: str = "en") -> ReplyKeyboardMarkup:
     if lang not in MENU_LABELS:
         lang = "en"
     L = MENU_LABELS[lang]
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=L["nano"], callback_data="menu_nano")],
-            [InlineKeyboardButton(text=L["vision"], callback_data="menu_vision")],
-            [InlineKeyboardButton(text=L["characters"], callback_data="menu_chars")],
-            [InlineKeyboardButton(text=L["tiktok"], callback_data="menu_tiktok"), InlineKeyboardButton(text=L["profile"], callback_data="menu_profile")],
-            [InlineKeyboardButton(text=L["vip"], callback_data="menu_tariffs")],
-            [InlineKeyboardButton(text=L["add_coins"], callback_data="menu_add_coins")],
-            [InlineKeyboardButton(text=L["hype"], callback_data="menu_hype")],
-            [InlineKeyboardButton(text=L["tasks"], callback_data="menu_tasks")],
-            [InlineKeyboardButton(text=L["lang"], callback_data="menu_lang"), InlineKeyboardButton(text=L["help"], callback_data="menu_help")]
-        ]
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=L["nano"])],
+            [KeyboardButton(text=L["vision"])],
+            [KeyboardButton(text=L["characters"])],
+            [KeyboardButton(text=L["tiktok"]), KeyboardButton(text=L["profile"])],
+            [KeyboardButton(text=L["vip"])],
+            [KeyboardButton(text=L["add_coins"])],
+            [KeyboardButton(text=L["hype"])],
+            [KeyboardButton(text=L["tasks"])],
+            [KeyboardButton(text=L["lang"]), KeyboardButton(text=L["help"])]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Choose an option..."
     )
 
 def characters_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
@@ -69,7 +71,6 @@ def characters_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
     }
     L = chars.get(lang, chars["en"])
     keyboard = [[InlineKeyboardButton(text=name, callback_data=data)] for name, data in L]
-    keyboard.append([InlineKeyboardButton(text="⬅️ Back", callback_data="menu_back")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def lang_keyboard() -> InlineKeyboardMarkup:
@@ -106,7 +107,4 @@ def tasks_keyboard(tasks_list, lang="en") -> InlineKeyboardMarkup:
     for t in tasks_list:
         keyboard.append([InlineKeyboardButton(text=f"🔗 {t['title']} (+{t['reward']} 🪙)", url=t['url'])])
         keyboard.append([InlineKeyboardButton(text="✅ Проверить / Check", callback_data=f"check_task_{t['id']}")])
-    
-    back_text = "⬅️ Назад" if lang == "ru" else "⬅️ Back"
-    keyboard.append([InlineKeyboardButton(text=back_text, callback_data="menu_back")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
