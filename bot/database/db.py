@@ -57,10 +57,6 @@ async def init_db():
         ''')
         await db.commit()
 
-async def init_extras():
-    """Placeholder function to prevent import errors in main.py"""
-    pass
-
 # --- User Functions ---
 async def add_user(user_id, username, first_name=None, last_name=None, language_code='en', referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
@@ -92,6 +88,11 @@ async def update_user_coins(user_id, amount):
 async def update_user_image_limit(user_id, amount):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('UPDATE users SET daily_image_limit = ? WHERE id = ?', (amount, user_id))
+        await db.commit()
+
+async def update_user_premium(user_id, is_premium, until):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', (is_premium, until, user_id))
         await db.commit()
 
 # --- Payment Functions ---
@@ -137,6 +138,11 @@ async def save_conversation(user_id, user_message, bot_message):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "user", ?)', (user_id, user_message))
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "assistant", ?)', (user_id, bot_message))
+        await db.commit()
+
+async def clear_conversation_history(user_id):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
         await db.commit()
 
 async def get_chat_history(user_id, limit=10):

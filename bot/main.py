@@ -4,13 +4,15 @@ import sys
 import os
 
 # PYTHONPATH ni to'g'rilash (Railway uchun muhim)
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+
+# Absolute imports for Railway
 from bot.config import BOT_TOKEN
-from bot.database.db import init_db, init_extras
+from bot.database.db import init_db
 from bot.handlers.user_handlers import user_router
 from bot.handlers.admin_handlers import admin_router
 from bot.utils.scheduler import start_scheduler
@@ -31,8 +33,10 @@ async def main():
         return
 
     try:
+        # Initialize database
         await init_db()
-        await init_extras()
+        
+        # Start scheduler for daily tasks
         start_scheduler()
         
         bot = Bot(
