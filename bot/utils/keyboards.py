@@ -7,42 +7,49 @@ from aiogram.types import (
 
 MENU_LABELS = {
     "ru": {
-        "balance": "📊 Баланс", "premium": "💎 Премиум", "ref": "👥 Друзья",
-        "help": "🆘 Помощь", "clear": "🗑 Очистить", "image": "🎨 Nano Image",
-        "lang": "🌐 Язык", "bonus": "🎁 Бонус", "banana": "🍌 Nano Banana",
+        "nano": "🎨 NANO BANANA / AI",
+        "vision": "📸 Получить промт по фото",
+        "characters": "👽 Персонажи",
+        "tiktok": "📱 TikTok режим",
+        "profile": "👤 Мой профиль",
+        "tariffs": "💎 Тарифы",
+        "add_coins": "💸 Докинуть токенов",
+        "hype": "🔥 Хайп промты 🔥",
+        "tasks": "🎁 Задания (Бонус)",
+        "lang": "🌐 Язык",
+        "help": "🆘 Помощь"
     },
     "en": {
-        "balance": "📊 Balance", "premium": "💎 Premium", "ref": "👥 Friends",
-        "help": "🆘 Help", "clear": "🗑 Clear", "image": "🎨 Nano Image",
-        "lang": "🌐 Lang", "bonus": "🎁 Bonus", "banana": "🍌 Nano Banana",
+        "nano": "🎨 NANO BANANA / AI",
+        "vision": "📸 Get prompt from photo",
+        "characters": "👽 Characters",
+        "tiktok": "📱 TikTok mode",
+        "profile": "👤 My Profile",
+        "tariffs": "💎 Tariffs",
+        "add_coins": "💸 Add Coins",
+        "hype": "🔥 Hype Prompts 🔥",
+        "tasks": "🎁 Tasks (Bonus)",
+        "lang": "🌐 Lang",
+        "help": "🆘 Help"
     },
 }
 
-def _all_labels(key: str) -> set:
-    return {MENU_LABELS[lang][key] for lang in MENU_LABELS}
-
-BTN_BALANCE = _all_labels("balance")
-BTN_PREMIUM = _all_labels("premium")
-BTN_REF = _all_labels("ref")
-BTN_HELP = _all_labels("help")
-BTN_CLEAR = _all_labels("clear")
-BTN_IMAGE = _all_labels("image")
-BTN_LANG = _all_labels("lang")
-BTN_BONUS = _all_labels("bonus")
-BTN_BANANA = _all_labels("banana")
-
-def main_menu(lang: str = "en") -> ReplyKeyboardMarkup:
+def main_inline_menu(lang: str = "en") -> InlineKeyboardMarkup:
     if lang not in MENU_LABELS:
         lang = "en"
     L = MENU_LABELS[lang]
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=L["balance"]), KeyboardButton(text=L["premium"])],
-            [KeyboardButton(text=L["image"]), KeyboardButton(text=L["banana"])],
-            [KeyboardButton(text=L["ref"]), KeyboardButton(text=L["bonus"])],
-            [KeyboardButton(text=L["clear"]), KeyboardButton(text=L["lang"]), KeyboardButton(text=L["help"])],
-        ],
-        resize_keyboard=True,
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=L["nano"], callback_data="menu_nano")],
+            [InlineKeyboardButton(text=L["vision"], callback_data="menu_vision")],
+            [InlineKeyboardButton(text=L["characters"], callback_data="menu_chars")],
+            [InlineKeyboardButton(text=L["tiktok"], callback_data="menu_tiktok"), InlineKeyboardButton(text=L["profile"], callback_data="menu_profile")],
+            [InlineKeyboardButton(text=L["tariffs"], callback_data="menu_tariffs")],
+            [InlineKeyboardButton(text=L["add_coins"], callback_data="menu_add_coins")],
+            [InlineKeyboardButton(text=L["hype"], callback_data="menu_hype")],
+            [InlineKeyboardButton(text=L["tasks"], callback_data="menu_tasks")],
+            [InlineKeyboardButton(text=L["lang"], callback_data="menu_lang"), InlineKeyboardButton(text=L["help"], callback_data="menu_help")]
+        ]
     )
 
 def lang_keyboard() -> InlineKeyboardMarkup:
@@ -73,3 +80,13 @@ def admin_payment_confirm_keyboard(payment_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="❌ Reject", callback_data=f"admin_reject_pay_{payment_id}")]
         ]
     )
+
+def tasks_keyboard(tasks_list, lang="en") -> InlineKeyboardMarkup:
+    keyboard = []
+    for t in tasks_list:
+        keyboard.append([InlineKeyboardButton(text=f"🔗 {t['title']} (+{t['reward']} 🪙)", url=t['url'])])
+        keyboard.append([InlineKeyboardButton(text="✅ Проверить / Check", callback_data=f"check_task_{t['id']}")])
+    
+    back_text = "⬅️ Назад" if lang == "ru" else "⬅️ Back"
+    keyboard.append([InlineKeyboardButton(text=back_text, callback_data="menu_back")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)

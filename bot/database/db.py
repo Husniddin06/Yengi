@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 async def init_db():
     async with aiosqlite.connect(DATABASE_NAME) as db:
+        # Users table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
@@ -25,6 +26,7 @@ async def init_db():
             )
         ''')
         
+        # Payments table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS payments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +40,28 @@ async def init_db():
             )
         ''')
         
+        # Tasks table (for admin to add channels/tasks)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                url TEXT,
+                reward INTEGER DEFAULT 5,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        ''')
+        
+        # User completed tasks
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS user_tasks (
+                user_id INTEGER,
+                task_id INTEGER,
+                completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, task_id)
+            )
+        ''')
+        
+        # Conversations table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +73,7 @@ async def init_db():
             )
         ''')
         
+        # Daily bonus table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS daily_bonus (
                 user_id INTEGER PRIMARY KEY,
@@ -56,6 +81,9 @@ async def init_db():
             )
         ''')
         await db.commit()
+
+async def init_extras():
+    pass
 
 # --- User Functions ---
 async def add_user(user_id, username, first_name=None, last_name=None, language_code='en', referred_by=None):
@@ -85,15 +113,38 @@ async def update_user_coins(user_id, amount):
         await db.execute('UPDATE users SET coins = coins + ? WHERE id = ?', (amount, user_id))
         await db.commit()
 
-async def update_user_image_limit(user_id, amount):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET daily_image_limit = ? WHERE id = ?', (amount, user_id))
-        await db.commit()
-
 async def update_user_premium(user_id, is_premium, until):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', (is_premium, until, user_id))
         await db.commit()
+
+# --- Task Functions ---
+async def add_task(title, url, reward=5):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute('INSERT INTO tasks (title, url, reward) VALUES (?, ?, ?)', (title, url, reward))
+        await db.commit()
+
+async def get_active_tasks():
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM tasks WHERE is_active = 1') as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+async def complete_task(user_id, task_id):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        async with db.execute('SELECT reward FROM tasks WHERE id = ?', (task_id,)) as cursor:
+            task = await cursor.fetchone()
+            if not task: return False
+            reward = task[0]
+        
+        try:
+            await db.execute('INSERT INTO user_tasks (user_id, task_id) VALUES (?, ?)', (user_id, task_id))
+            await db.execute('UPDATE users SET coins = coins + ? WHERE id = ?', (reward, user_id))
+            await db.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False # Already completed
 
 # --- Payment Functions ---
 async def add_payment(user_id, amount, method):

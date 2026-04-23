@@ -13,6 +13,8 @@ admin_router = Router()
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
+    waiting_for_task_title = State()
+    waiting_for_task_url = State()
 
 def is_admin(user_id: int):
     return user_id == ADMIN_ID
@@ -22,6 +24,7 @@ def admin_menu():
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_stats")],
         [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="💳 Pending Payments", callback_data="admin_pending_payments")],
+        [InlineKeyboardButton(text="🎁 Add Task (Bonus)", callback_data="admin_add_task")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -74,13 +77,27 @@ async def admin_confirm_payment(cb: CallbackQuery):
         await cb.message.edit_text("❌ Error confirming payment.")
     await cb.answer()
 
-@admin_router.callback_query(F.data.startswith("admin_reject_pay_"))
-async def admin_reject_payment(cb: CallbackQuery):
+@admin_router.callback_query(F.data == "admin_add_task")
+async def admin_add_task(cb: CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return
-    payment_id = int(cb.data.split("_")[3])
-    # Shunchaki o'chirish yoki statusni o'zgartirish mumkin
-    await cb.message.edit_text(f"❌ Payment {payment_id} rejected.")
+    await cb.message.answer("Enter task title (e.g., 'Subscribe to Channel'):")
+    await state.set_state(AdminStates.waiting_for_task_title)
     await cb.answer()
+
+@admin_router.message(AdminStates.waiting_for_task_title)
+async def process_task_title(message: Message, state: FSMContext):
+    await state.update_data(task_title=message.text)
+    await message.answer("Enter task URL (e.g., 'https://t.me/yourchannel'):")
+    await state.set_state(AdminStates.waiting_for_task_url)
+
+@admin_router.message(AdminStates.waiting_for_task_url)
+async def process_task_url(message: Message, state: FSMContext):
+    data = await state.get_data()
+    title = data.get("task_title")
+    url = message.text
+    await db.add_task(title, url, 5)
+    await message.answer(f"✅ Task added: {title} ({url})", reply_markup=admin_menu())
+    await state.clear()
 
 @admin_router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(cb: CallbackQuery, state: FSMContext):
