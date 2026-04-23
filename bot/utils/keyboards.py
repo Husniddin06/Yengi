@@ -8,13 +8,13 @@ from aiogram.types import (
 MENU_LABELS = {
     "ru": {
         "balance": "📊 Баланс", "premium": "💎 Премиум", "ref": "👥 Друзья",
-        "help": "🆘 Помощь", "clear": "🗑 Очистить", "image": "🎨 Картинка",
-        "lang": "🌐 Язык", "bonus": "🎁 Бонус",
+        "help": "🆘 Помощь", "clear": "🗑 Очистить", "image": "🎨 Nano Image",
+        "lang": "🌐 Язык", "bonus": "🎁 Бонус", "banana": "🍌 Nano Banana",
     },
     "en": {
         "balance": "📊 Balance", "premium": "💎 Premium", "ref": "👥 Friends",
-        "help": "🆘 Help", "clear": "🗑 Clear", "image": "🎨 Image",
-        "lang": "🌐 Lang", "bonus": "🎁 Bonus",
+        "help": "🆘 Help", "clear": "🗑 Clear", "image": "🎨 Nano Image",
+        "lang": "🌐 Lang", "bonus": "🎁 Bonus", "banana": "🍌 Nano Banana",
     },
 }
 
@@ -29,6 +29,7 @@ BTN_CLEAR = _all_labels("clear")
 BTN_IMAGE = _all_labels("image")
 BTN_LANG = _all_labels("lang")
 BTN_BONUS = _all_labels("bonus")
+BTN_BANANA = _all_labels("banana")
 
 def main_menu(lang: str = "en") -> ReplyKeyboardMarkup:
     if lang not in MENU_LABELS:
@@ -37,9 +38,9 @@ def main_menu(lang: str = "en") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=L["balance"]), KeyboardButton(text=L["premium"])],
-            [KeyboardButton(text=L["image"]), KeyboardButton(text=L["ref"])],
-            [KeyboardButton(text=L["bonus"]), KeyboardButton(text=L["clear"])],
-            [KeyboardButton(text=L["lang"]), KeyboardButton(text=L["help"])],
+            [KeyboardButton(text=L["image"]), KeyboardButton(text=L["banana"])],
+            [KeyboardButton(text=L["ref"]), KeyboardButton(text=L["bonus"])],
+            [KeyboardButton(text=L["clear"]), KeyboardButton(text=L["lang"]), KeyboardButton(text=L["help"])],
         ],
         resize_keyboard=True,
     )
@@ -60,7 +61,15 @@ def payment_options_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
     L = texts.get(lang, texts["en"])
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=L["sbp"], url="https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79990402614&bankCode=100000000111&comment=Premium_1_Month")],
+            [InlineKeyboardButton(text=L["sbp"], callback_data="pay_sbp_request")],
             [InlineKeyboardButton(text=L["stars"], callback_data="pay_stars_1month")]
+        ]
+    )
+
+def admin_payment_confirm_keyboard(payment_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Confirm", callback_data=f"admin_confirm_pay_{payment_id}")],
+            [InlineKeyboardButton(text="❌ Reject", callback_data=f"admin_reject_pay_{payment_id}")]
         ]
     )

@@ -15,13 +15,13 @@ async def init_db():
                 last_name TEXT,
                 is_premium BOOLEAN DEFAULT FALSE,
                 premium_until DATETIME,
-                daily_limit INTEGER DEFAULT 10,
+                coins INTEGER DEFAULT 10,
+                daily_image_limit INTEGER DEFAULT 3,
                 referred_by INTEGER,
                 referrals_count INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 language_code TEXT DEFAULT 'en',
-                is_blocked BOOLEAN DEFAULT FALSE,
-                user_notes TEXT DEFAULT ''
+                is_blocked BOOLEAN DEFAULT FALSE
             )
         ''')
         
@@ -30,23 +30,11 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 amount REAL,
-                currency TEXT,
-                status TEXT,
-                period TEXT,
+                method TEXT,
+                status TEXT DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 approved_by INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        ''')
-        
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS referrals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                referrer_id INTEGER,
-                referred_id INTEGER UNIQUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (referrer_id) REFERENCES users(id),
-                FOREIGN KEY (referred_id) REFERENCES users(id)
             )
         ''')
         
@@ -67,41 +55,17 @@ async def init_db():
                 last_claimed TEXT
             )
         ''')
-        
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS promo_codes (
-                code TEXT PRIMARY KEY,
-                premium_days INTEGER DEFAULT 0,
-                extra_requests INTEGER DEFAULT 0,
-                uses_left INTEGER DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS promo_redemptions (
-                user_id INTEGER,
-                code TEXT,
-                redeemed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (user_id, code)
-            )
-        ''')
         await db.commit()
-
-async def init_extras():
-    # Placeholder for any future extra initialization
-    pass
 
 # --- User Functions ---
 async def add_user(user_id, username, first_name=None, last_name=None, language_code='en', referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('''
-            INSERT OR IGNORE INTO users (id, username, first_name, last_name, language_code, referred_by)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO users (id, username, first_name, last_name, language_code, referred_by, coins)
+            VALUES (?, ?, ?, ?, ?, ?, 10)
         ''', (user_id, username, first_name, last_name, language_code, referred_by))
         if referred_by:
-            await db.execute('UPDATE users SET referrals_count = referrals_count + 1 WHERE id = ?', (referred_by,))
-            await db.execute('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)', (referred_by, user_id))
+            await db.execute('UPDATE users SET referrals_count = referrals_count + 1, coins = coins + 5 WHERE id = ?', (referred_by,))
         await db.commit()
 
 async def get_user(user_id):
@@ -116,18 +80,55 @@ async def update_user_language(user_id, language_code):
         await db.execute('UPDATE users SET language_code = ? WHERE id = ?', (language_code, user_id))
         await db.commit()
 
-async def update_user_limit(user_id, new_limit):
+async def update_user_coins(user_id, amount):
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET daily_limit = ? WHERE id = ?', (new_limit, user_id))
+        await db.execute('UPDATE users SET coins = coins + ? WHERE id = ?', (amount, user_id))
         await db.commit()
 
-async def update_user_premium(user_id, is_premium, premium_until):
+async def update_user_image_limit(user_id, amount):
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', 
-                         (is_premium, premium_until, user_id))
+        await db.execute('UPDATE users SET daily_image_limit = ? WHERE id = ?', (amount, user_id))
         await db.commit()
 
-# --- Conversation Functions ---
+# --- Payment Functions ---
+async def add_payment(user_id, amount, method):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        cursor = await db.execute('INSERT INTO payments (user_id, amount, method) VALUES (?, ?, ?)', (user_id, amount, method))
+        payment_id = cursor.lastrowid
+        await db.commit()
+        return payment_id
+
+async def get_pending_payments():
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT p.*, u.username FROM payments p JOIN users u ON p.user_id = u.id WHERE p.status = "pending"') as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+async def approve_payment(payment_id, admin_id):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT user_id FROM payments WHERE id = ?', (payment_id,)) as cursor:
+            payment = await cursor.fetchone()
+            if not payment: return False
+            user_id = payment['user_id']
+            
+        await db.execute('UPDATE payments SET status = "approved", approved_by = ? WHERE id = ?', (admin_id, payment_id))
+        await db.execute('UPDATE users SET coins = coins + 150, is_premium = 1, premium_until = ? WHERE id = ?', 
+                         (datetime.datetime.now() + datetime.timedelta(days=30), user_id))
+        await db.commit()
+        return user_id
+
+# --- Scheduler Functions ---
+async def daily_coin_deduction():
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        # Har kuni 5 tanga ayirish (kamida 0 gacha)
+        await db.execute('UPDATE users SET coins = CASE WHEN coins >= 5 THEN coins - 5 ELSE 0 END')
+        # Rasm limitini yangilash (kuniga 3 ta)
+        await db.execute('UPDATE users SET daily_image_limit = 3')
+        await db.commit()
+
+# --- Other Functions ---
 async def save_conversation(user_id, user_message, bot_message):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "user", ?)', (user_id, user_message))
@@ -144,12 +145,17 @@ async def get_chat_history(user_id, limit=10):
                 history.append({"role": row["role"], "content": row["content"]})
             return history
 
-async def clear_conversation_history(user_id):
+async def claim_daily_bonus(user_id, bonus_amount=1):
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
-        await db.commit()
+        today = datetime.date.today().isoformat()
+        async with db.execute('SELECT last_claimed FROM daily_bonus WHERE user_id = ?', (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0] == today: return False
+            await db.execute('INSERT OR REPLACE INTO daily_bonus (user_id, last_claimed) VALUES (?, ?)', (user_id, today))
+            await db.execute('UPDATE users SET coins = coins + ? WHERE id = ?', (bonus_amount, user_id))
+            await db.commit()
+            return True
 
-# --- Admin & Stats Functions ---
 async def get_total_users():
     async with aiosqlite.connect(DATABASE_NAME) as db:
         async with db.execute('SELECT COUNT(*) FROM users') as cursor:
@@ -174,63 +180,3 @@ async def get_all_users():
         async with db.execute('SELECT id FROM users') as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
-
-async def reset_all_daily_limits(limit):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET daily_limit = ? WHERE is_premium = 0', (limit,))
-        await db.commit()
-
-# --- Bonus & Promo Functions ---
-async def claim_daily_bonus(user_id, bonus_amount):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        today = datetime.date.today().isoformat()
-        async with db.execute('SELECT last_claimed FROM daily_bonus WHERE user_id = ?', (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row and row[0] == today: return False
-            await db.execute('INSERT OR REPLACE INTO daily_bonus (user_id, last_claimed) VALUES (?, ?)', (user_id, today))
-            await db.execute('UPDATE users SET daily_limit = daily_limit + ? WHERE id = ?', (bonus_amount, user_id))
-            await db.commit()
-            return True
-
-async def create_promo(code, days, reqs, uses):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('INSERT INTO promo_codes (code, premium_days, extra_requests, uses_left) VALUES (?, ?, ?, ?)', (code.upper(), days, reqs, uses))
-        await db.commit()
-
-async def redeem_promo(user_id, code):
-    code = code.upper()
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute('SELECT * FROM promo_codes WHERE code = ? AND uses_left > 0', (code,)) as cursor:
-            promo = await cursor.fetchone()
-            if not promo: return None
-        async with db.execute('SELECT 1 FROM promo_redemptions WHERE user_id = ? AND code = ?', (user_id, code)) as cursor:
-            if await cursor.fetchone(): return "already"
-        
-        if promo["premium_days"] > 0:
-            user = await get_user(user_id)
-            current_until = user["premium_until"]
-            start_dt = datetime.datetime.now()
-            if current_until:
-                try:
-                    existing_dt = datetime.datetime.strptime(str(current_until), "%Y-%m-%d %H:%M:%S.%f")
-                    if existing_dt > start_dt: start_dt = existing_dt
-                except: pass
-            new_until = start_dt + datetime.timedelta(days=promo["premium_days"])
-            await db.execute('UPDATE users SET is_premium = 1, premium_until = ? WHERE id = ?', (new_until, user_id))
-        
-        if promo["extra_requests"] > 0:
-            await db.execute('UPDATE users SET daily_limit = daily_limit + ? WHERE id = ?', (promo["extra_requests"], user_id))
-            
-        await db.execute('INSERT INTO promo_redemptions (user_id, code) VALUES (?, ?)', (user_id, code))
-        await db.execute('UPDATE promo_codes SET uses_left = uses_left - 1 WHERE code = ?', (code,))
-        await db.commit()
-        return {"premium_days": promo["premium_days"], "extra_requests": promo["extra_requests"]}
-
-# --- Payment Functions ---
-async def add_payment(user_id, amount, period):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        cursor = await db.execute('INSERT INTO payments (user_id, amount, status, period) VALUES (?, ?, "pending", ?)', (user_id, amount, period))
-        payment_id = cursor.lastrowid
-        await db.commit()
-        return payment_id

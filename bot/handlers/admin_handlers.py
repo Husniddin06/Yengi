@@ -13,7 +13,6 @@ admin_router = Router()
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
-    waiting_for_promo_code = State()
 
 def is_admin(user_id: int):
     return user_id == ADMIN_ID
@@ -22,8 +21,7 @@ def admin_menu():
     keyboard = [
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_stats")],
         [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="🎟 Create Promo", callback_data="admin_create_promo")],
-        [InlineKeyboardButton(text="🔄 Reset Limits", callback_data="admin_reset_limits")],
+        [InlineKeyboardButton(text="💳 Pending Payments", callback_data="admin_pending_payments")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -47,6 +45,43 @@ async def admin_stats(cb: CallbackQuery):
     )
     await cb.message.edit_text(text, reply_markup=admin_menu())
 
+@admin_router.callback_query(F.data == "admin_pending_payments")
+async def admin_pending_payments(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id): return
+    payments = await db.get_pending_payments()
+    if not payments:
+        await cb.message.answer("No pending payments.")
+        await cb.answer()
+        return
+    
+    from bot.utils.keyboards import admin_payment_confirm_keyboard
+    for p in payments:
+        text = f"💳 <b>Payment Request</b>\nUser: {p['username']} (ID: {p['user_id']})\nAmount: {p['amount']}₽\nMethod: {p['method']}\nDate: {p['created_at']}"
+        await cb.message.answer(text, reply_markup=admin_payment_confirm_keyboard(p['id']))
+    await cb.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_confirm_pay_"))
+async def admin_confirm_payment(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id): return
+    payment_id = int(cb.data.split("_")[3])
+    user_id = await db.approve_payment(payment_id, cb.from_user.id)
+    if user_id:
+        await cb.message.edit_text(f"✅ Payment {payment_id} confirmed. 150 coins added to user {user_id}.")
+        try:
+            await cb.bot.send_message(user_id, "✅ Your SBP payment has been confirmed! 150 coins added and Premium activated.")
+        except: pass
+    else:
+        await cb.message.edit_text("❌ Error confirming payment.")
+    await cb.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_reject_pay_"))
+async def admin_reject_payment(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id): return
+    payment_id = int(cb.data.split("_")[3])
+    # Shunchaki o'chirish yoki statusni o'zgartirish mumkin
+    await cb.message.edit_text(f"❌ Payment {payment_id} rejected.")
+    await cb.answer()
+
 @admin_router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(cb: CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return
@@ -69,32 +104,3 @@ async def process_broadcast(message: Message, state: FSMContext):
             pass
     await message.answer(f"Message sent to {count} users.")
     await state.clear()
-
-@admin_router.callback_query(F.data == "admin_create_promo")
-async def admin_create_promo(cb: CallbackQuery, state: FSMContext):
-    if not is_admin(cb.from_user.id): return
-    await cb.message.answer("Send promo-code format:\n<code>CODE DAYS REQUESTS COUNT</code>\n\nExample: <code>NEW2024 30 100 50</code>")
-    await state.set_state(AdminStates.waiting_for_promo_code)
-    await cb.answer()
-
-@admin_router.message(AdminStates.waiting_for_promo_code)
-async def process_create_promo(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id): return
-    try:
-        parts = message.text.split()
-        code = parts[0].upper()
-        days = int(parts[1])
-        reqs = int(parts[2])
-        uses = int(parts[3])
-        await db.create_promo(code, days, reqs, uses)
-        await message.answer(f"✅ Promo created: {code}\n💎 Days: {days}\n➕ Requests: {reqs}\n🔢 Count: {uses}")
-    except Exception as e:
-        await message.answer(f"❌ Error: {e}")
-    await state.clear()
-
-@admin_router.callback_query(F.data == "admin_reset_limits")
-async def admin_reset_limits(cb: CallbackQuery):
-    if not is_admin(cb.from_user.id): return
-    await db.reset_all_daily_limits(10)
-    await cb.message.answer("✅ Daily limits reset to 10 for all free users.")
-    await cb.answer()

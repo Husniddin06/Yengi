@@ -13,51 +13,57 @@ from bot.utils.openai_utils import get_chat_response, generate_image
 from bot.utils.keyboards import (
     main_menu, lang_keyboard, payment_options_keyboard,
     BTN_BALANCE, BTN_CLEAR, BTN_IMAGE, BTN_PREMIUM,
-    BTN_HELP, BTN_REF, BTN_LANG, BTN_BONUS,
+    BTN_HELP, BTN_REF, BTN_LANG, BTN_BONUS, BTN_BANANA,
 )
+from bot.config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 user_router = Router()
 
 class UserStates(StatesGroup):
     waiting_for_image_prompt = State()
+    waiting_for_banana_prompt = State()
 
 TEXTS = {
     "ru": {
         "welcome": "Привет! Я умный ИИ бот. Выберите язык или начните общение.",
         "lang_set": "Язык изменен на Русский 🇷🇺",
-        "balance": "📊 Ваш баланс: {limit} запросов\n💎 Premium: {premium}",
-        "premium_info": "💎 Premium дает безлимитные запросы и доступ к GPT-4o.\nВыберите способ оплаты:",
-        "help": "🆘 Помощь:\n/start - Перезапуск\n/lang - Смена языка\nПросто отправьте текст для общения или нажмите 'Rasm' для генерации.",
+        "balance": "📊 Ваш баланс: {coins} монет\n💎 Premium: {premium}\n🖼 Лимит Nano Image: {limit}/3",
+        "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
+        "help": "🆘 Помощь:\n/start - Перезапуск\n/lang - Смена языка\nЧат с ботом БЕСПЛАТНЫЙ. Nano Image - 3 раза в день.",
         "history_cleared": "🗑 История диалога очищена.",
-        "image_prompt": "🎨 Отправьте описание картинки, которую хотите создать.",
+        "image_prompt": "🎨 Nano Image: Отправьте описание картинки (Лимит: 3 в день).",
+        "banana_prompt": "🍌 Nano Banana: Отправьте описание для создания бананового арта!",
         "generating_image": "🎨 Генерирую изображение, пожалуйста подождите...",
-        "bonus_claimed": "🎁 Вы получили бонус: +{amount} запросов!",
+        "bonus_claimed": "🎁 Вы получили бонус: +1 монета!",
         "bonus_already": "❌ Вы уже получили бонус сегодня.",
-        "ref_info": "👥 Приглашайте друзей и получайте бонусы!\nВаша ссылка: {link}\nВсего приглашено: {count}",
+        "ref_info": "👥 Приглашайте друзей и получайте по 5 монет за каждого!\nВаша ссылка: {link}\nВсего приглашено: {count}",
         "error": "❌ Произошла ошибка. Попробуйте позже.",
-        "no_limit": "❌ У вас закончились запросы. Купите Premium или подождите обновления.",
-        "stars_title": "Premium на 1 месяц",
-        "stars_desc": "Безлимитные запросы и доступ к GPT-4o на 30 дней.",
-        "payment_success": "✅ Оплата прошла успешно! Premium активирован на 30 дней.",
+        "no_image_limit": "❌ Вы исчерпали лимит Nano Image (3 в день).",
+        "stars_title": "Premium + 150 монет",
+        "stars_desc": "Активация Premium и начисление 150 монет.",
+        "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
+        "sbp_request_sent": "💳 Запрос на оплату через СБП отправлен админу. После перевода 75₽ на карту, админ подтвердит платеж и вам придет 150 монет.",
     },
     "en": {
         "welcome": "Hello! I am a smart AI bot. Choose a language or start chatting.",
         "lang_set": "Language set to English 🇬🇧",
-        "balance": "📊 Your balance: {limit} requests\n💎 Premium: {premium}",
-        "premium_info": "💎 Premium gives unlimited requests and access to GPT-4o.\nChoose payment method:",
-        "help": "🆘 Help:\n/start - Restart\n/lang - Change language\nJust send text to start chatting or click 'Image' to generate.",
+        "balance": "📊 Your balance: {coins} coins\n💎 Premium: {premium}\n🖼 Nano Image limit: {limit}/3",
+        "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
+        "help": "🆘 Help:\n/start - Restart\n/lang - Change language\nChatting is FREE. Nano Image limit: 3 per day.",
         "history_cleared": "🗑 Conversation history cleared.",
-        "image_prompt": "🎨 Send a description of the image you want to create.",
+        "image_prompt": "🎨 Nano Image: Send a description (Limit: 3 per day).",
+        "banana_prompt": "🍌 Nano Banana: Send a description to create banana art!",
         "generating_image": "🎨 Generating image, please wait...",
-        "bonus_claimed": "🎁 You received a bonus: +{amount} requests!",
+        "bonus_claimed": "🎁 You received a bonus: +1 coin!",
         "bonus_already": "❌ You already claimed your bonus today.",
-        "ref_info": "👥 Invite friends and get bonuses!\nYour link: {link}\nTotal invited: {count}",
+        "ref_info": "👥 Invite friends and get 5 coins for each!\nYour link: {link}\nTotal invited: {count}",
         "error": "❌ An error occurred. Please try again later.",
-        "no_limit": "❌ You have run out of requests. Buy Premium or wait for a reset.",
-        "stars_title": "Premium for 1 Month",
-        "stars_desc": "Unlimited requests and GPT-4o access for 30 days.",
-        "payment_success": "✅ Payment successful! Premium activated for 30 days.",
+        "no_image_limit": "❌ You have reached your Nano Image limit (3 per day).",
+        "stars_title": "Premium + 150 Coins",
+        "stars_desc": "Activate Premium and get 150 coins.",
+        "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
+        "sbp_request_sent": "💳 SBP payment request sent to admin. After transferring 75₽, admin will confirm and you will receive 150 coins.",
     }
 }
 
@@ -102,7 +108,7 @@ async def show_balance(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     premium_status = "✅" if user['is_premium'] else "❌"
-    await message.answer(TEXTS[lang]["balance"].format(limit=user['daily_limit'], premium=premium_status))
+    await message.answer(TEXTS[lang]["balance"].format(coins=user['coins'], premium=premium_status, limit=user['daily_image_limit']))
 
 @user_router.message(F.text.in_(BTN_HELP))
 async def show_help(message: Message):
@@ -121,10 +127,9 @@ async def clear_history(message: Message):
 async def get_bonus(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    from bot.config import DAILY_BONUS
-    success = await db.claim_daily_bonus(message.from_user.id, DAILY_BONUS)
+    success = await db.claim_daily_bonus(message.from_user.id, 1)
     if success:
-        await message.answer(TEXTS[lang]["bonus_claimed"].format(amount=DAILY_BONUS))
+        await message.answer(TEXTS[lang]["bonus_claimed"])
     else:
         await message.answer(TEXTS[lang]["bonus_already"])
 
@@ -142,6 +147,20 @@ async def show_premium(message: Message):
     lang = user['language_code']
     await message.answer(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang))
 
+@user_router.callback_query(F.data == "pay_sbp_request")
+async def pay_sbp_request(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
+    
+    # Admin xabari
+    from bot.utils.keyboards import admin_payment_confirm_keyboard
+    admin_text = f"💳 <b>New SBP Payment Request!</b>\nUser: {cb.from_user.full_name} (@{cb.from_user.username})\nID: {cb.from_user.id}\nAmount: 75₽\nPayment ID: {payment_id}"
+    await cb.bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_payment_confirm_keyboard(payment_id))
+    
+    await cb.message.answer(TEXTS[lang]["sbp_request_sent"])
+    await cb.answer()
+
 @user_router.callback_query(F.data == "pay_stars_1month")
 async def pay_stars(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
@@ -151,8 +170,8 @@ async def pay_stars(cb: CallbackQuery):
         title=TEXTS[lang]["stars_title"],
         description=TEXTS[lang]["stars_desc"],
         prices=prices,
-        provider_token="", # Empty for Telegram Stars
-        payload="premium_1month",
+        provider_token="", 
+        payload="premium_150coins",
         currency="XTR"
     )
     await cb.answer()
@@ -166,7 +185,8 @@ async def process_successful_payment(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     payload = message.successful_payment.invoice_payload
-    if payload == "premium_1month":
+    if payload == "premium_150coins":
+        await db.update_user_coins(message.from_user.id, 150)
         new_until = datetime.now() + timedelta(days=30)
         await db.update_user_premium(message.from_user.id, True, new_until)
         await message.answer(TEXTS[lang]["payment_success"])
@@ -175,31 +195,47 @@ async def process_successful_payment(message: Message):
 async def image_prompt_request(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
+    if user['daily_image_limit'] <= 0:
+        await message.answer(TEXTS[lang]["no_image_limit"])
+        return
     await message.answer(TEXTS[lang]["image_prompt"])
     await state.set_state(UserStates.waiting_for_image_prompt)
+
+@user_router.message(F.text.in_(BTN_BANANA))
+async def banana_prompt_request(message: Message, state: FSMContext):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    await message.answer(TEXTS[lang]["banana_prompt"])
+    await state.set_state(UserStates.waiting_for_banana_prompt)
 
 @user_router.message(UserStates.waiting_for_image_prompt)
 async def process_image_generation(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    
-    if user['daily_limit'] <= 0 and not user['is_premium']:
-        await message.answer(TEXTS[lang]["no_limit"])
-        await state.clear()
-        return
-
     await message.answer(TEXTS[lang]["generating_image"])
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
-    
     try:
         image_url = await generate_image(message.text)
-        await message.answer_photo(photo=image_url, caption=f"🎨: {message.text[:100]}")
-        if not user['is_premium']:
-            await db.update_user_limit(message.from_user.id, user['daily_limit'] - 1)
+        await message.answer_photo(photo=image_url, caption=f"🎨 Nano Image: {message.text[:100]}")
+        await db.update_user_image_limit(message.from_user.id, user['daily_image_limit'] - 1)
     except Exception as e:
         logger.error(f"Error in image generation: {e}")
         await message.answer(TEXTS[lang]["error"])
-    
+    await state.clear()
+
+@user_router.message(UserStates.waiting_for_banana_prompt)
+async def process_banana_generation(message: Message, state: FSMContext):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    await message.answer(TEXTS[lang]["generating_image"])
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
+    try:
+        banana_prompt = f"Banana style art: {message.text}"
+        image_url = await generate_image(banana_prompt)
+        await message.answer_photo(photo=image_url, caption=f"🍌 Nano Banana: {message.text[:100]}")
+    except Exception as e:
+        logger.error(f"Error in banana generation: {e}")
+        await message.answer(TEXTS[lang]["error"])
     await state.clear()
 
 @user_router.message(F.text)
@@ -207,21 +243,11 @@ async def handle_message(message: Message):
     user = await db.get_user(message.from_user.id)
     if not user: return
     lang = user['language_code']
-    
-    if user['daily_limit'] <= 0 and not user['is_premium']:
-        await message.answer(TEXTS[lang]["no_limit"])
-        return
-
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
-    
     try:
         history = await db.get_chat_history(message.from_user.id)
         response = await get_chat_response(message.text, history)
         await db.save_conversation(message.from_user.id, message.text, response)
-        
-        if not user['is_premium']:
-            await db.update_user_limit(message.from_user.id, user['daily_limit'] - 1)
-            
         await message.answer(response, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in handle_message: {e}")
