@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from aiogram import Router, F, types
+from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -20,10 +20,10 @@ def is_admin(user_id: int):
 
 def admin_menu():
     keyboard = [
-        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="📢 Xabar yuborish", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="🎟 Promo-kod yaratish", callback_data="admin_create_promo")],
-        [InlineKeyboardButton(text="🔄 Kunlik limitni yangilash", callback_data="admin_reset_limits")],
+        [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="🎟 Create Promo", callback_data="admin_create_promo")],
+        [InlineKeyboardButton(text="🔄 Reset Limits", callback_data="admin_reset_limits")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -31,7 +31,7 @@ def admin_menu():
 async def cmd_admin(message: Message):
     if not is_admin(message.from_user.id):
         return
-    await message.answer("Admin paneliga xush kelibsiz:", reply_markup=admin_menu())
+    await message.answer("Welcome to Admin Panel:", reply_markup=admin_menu())
 
 @admin_router.callback_query(F.data == "admin_stats")
 async def admin_stats(cb: CallbackQuery):
@@ -40,17 +40,17 @@ async def admin_stats(cb: CallbackQuery):
     premium = await db.get_premium_users_count()
     blocked = await db.get_blocked_users_count()
     text = (
-        f"📊 <b>Bot statistikasi:</b>\n\n"
-        f"👥 Jami foydalanuvchilar: {total}\n"
-        f"💎 Premium foydalanuvchilar: {premium}\n"
-        f"🚫 Bloklanganlar: {blocked}"
+        f"📊 <b>Bot Statistics:</b>\n\n"
+        f"👥 Total Users: {total}\n"
+        f"💎 Premium Users: {premium}\n"
+        f"🚫 Blocked: {blocked}"
     )
     await cb.message.edit_text(text, reply_markup=admin_menu())
 
 @admin_router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(cb: CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return
-    await cb.message.answer("Xabarni yuboring (matn, rasm yoki video):")
+    await cb.message.answer("Send the message (text, photo, or video):")
     await state.set_state(AdminStates.waiting_for_broadcast)
     await cb.answer()
 
@@ -59,21 +59,21 @@ async def process_broadcast(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     users = await db.get_all_users()
     count = 0
-    await message.answer(f"Xabar yuborish boshlandi... (Jami: {len(users)})")
+    await message.answer(f"Broadcast started... (Total: {len(users)})")
     for user in users:
         try:
-            await message.copy_to(user['id'])
+            await message.copy_to(user["id"])
             count += 1
             await asyncio.sleep(0.05)
         except Exception:
             pass
-    await message.answer(f"Xabar {count} ta foydalanuvchiga muvaffaqiyatli yuborildi.")
+    await message.answer(f"Message sent to {count} users.")
     await state.clear()
 
 @admin_router.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo(cb: CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return
-    await cb.message.answer("Promo-kod formatini yuboring:\n<code>KOD KUNLAR SO'ROVLAR SONI</code>\n\nMasalan: <code>NEW2024 30 100 50</code>")
+    await cb.message.answer("Send promo-code format:\n<code>CODE DAYS REQUESTS COUNT</code>\n\nExample: <code>NEW2024 30 100 50</code>")
     await state.set_state(AdminStates.waiting_for_promo_code)
     await cb.answer()
 
@@ -87,14 +87,14 @@ async def process_create_promo(message: Message, state: FSMContext):
         reqs = int(parts[2])
         uses = int(parts[3])
         await db.create_promo(code, days, reqs, uses)
-        await message.answer(f"✅ Promo-kod yaratildi: {code}\n💎 Kunlar: {days}\n➕ So'rovlar: {reqs}\n🔢 Soni: {uses}")
+        await message.answer(f"✅ Promo created: {code}\n💎 Days: {days}\n➕ Requests: {reqs}\n🔢 Count: {uses}")
     except Exception as e:
-        await message.answer(f"❌ Xato: {e}")
+        await message.answer(f"❌ Error: {e}")
     await state.clear()
 
 @admin_router.callback_query(F.data == "admin_reset_limits")
 async def admin_reset_limits(cb: CallbackQuery):
     if not is_admin(cb.from_user.id): return
     await db.reset_all_daily_limits(10)
-    await cb.message.answer("✅ Barcha bepul foydalanuvchilarning kunlik limiti 10 ga yangilandi.")
+    await cb.message.answer("✅ Daily limits reset to 10 for all free users.")
     await cb.answer()

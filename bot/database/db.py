@@ -5,7 +5,6 @@ DATABASE_NAME = 'smartai_bot.db'
 
 async def init_db():
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        # User jadvaliga user_notes ustunini qo'shish (agar yo'q bo'lsa)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
@@ -23,7 +22,6 @@ async def init_db():
                 user_notes TEXT DEFAULT ''
             )
         ''')
-        # Eski bazalarda user_notes ustuni bo'lmasligi mumkin, uni qo'shamiz
         try:
             await db.execute('ALTER TABLE users ADD COLUMN user_notes TEXT DEFAULT ""')
         except: pass
@@ -91,12 +89,12 @@ async def init_extras():
         await db.commit()
 
 # --- User Functions ---
-async def add_user(user_id, username, first_name, last_name, language_code, referred_by=None):
+async def add_user(user_id, username, language_code='en', referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('''
-            INSERT OR IGNORE INTO users (id, username, first_name, last_name, language_code, referred_by)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, username, first_name, last_name, language_code, referred_by))
+            INSERT OR IGNORE INTO users (id, username, language_code, referred_by)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, username, language_code, referred_by))
         await db.commit()
 
 async def get_user(user_id):
@@ -106,46 +104,17 @@ async def get_user(user_id):
             row = await cursor.fetchone()
             return dict(row) if row else None
 
-async def update_user_notes(user_id, notes):
+async def update_user_language(user_id, language_code):
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET user_notes = ? WHERE id = ?', (notes, user_id))
+        await db.execute('UPDATE users SET language_code = ? WHERE id = ?', (language_code, user_id))
         await db.commit()
 
-async def update_user_premium(user_id, is_premium, premium_until):
+async def update_user_limit(user_id, new_limit):
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', 
-                         (is_premium, premium_until, user_id))
+        await db.execute('UPDATE users SET daily_limit = ? WHERE id = ?', (new_limit, user_id))
         await db.commit()
 
-async def decrement_daily_limit(user_id):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET daily_limit = daily_limit - 1 WHERE id = ? AND daily_limit > 0', (user_id,))
-        await db.commit()
-
-# --- Referral, Payment, Stats... ---
-async def add_referral(referrer_id, referred_id):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)', (referrer_id, referred_id))
-        await db.commit()
-
-async def increment_referrals_count(user_id):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE users SET referrals_count = referrals_count + 1 WHERE id = ?', (user_id,))
-        await db.commit()
-
-async def add_payment(user_id, amount, period):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        cursor = await db.execute('INSERT INTO payments (user_id, amount, status, period) VALUES (?, ?, "pending", ?)', (user_id, amount, period))
-        payment_id = cursor.lastrowid
-        await db.commit()
-        return payment_id
-
-async def update_payment_status(payment_id, status, approved_by=None):
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        await db.execute('UPDATE payments SET status = ?, approved_by = ? WHERE id = ?', (status, approved_by, payment_id))
-        await db.commit()
-
-async def add_chat_history(user_id, user_message, bot_message):
+async def save_conversation(user_id, user_message, bot_message):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "user", ?)', (user_id, user_message))
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "assistant", ?)', (user_id, bot_message))
@@ -178,6 +147,12 @@ async def get_premium_users_count():
             row = await cursor.fetchone()
             return row[0]
 
+async def get_blocked_users_count():
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        async with db.execute('SELECT COUNT(*) FROM users WHERE is_blocked = 1') as cursor:
+            row = await cursor.fetchone()
+            return row[0]
+
 async def get_all_users():
     async with aiosqlite.connect(DATABASE_NAME) as db:
         db.row_factory = aiosqlite.Row
@@ -188,12 +163,6 @@ async def get_all_users():
 async def reset_all_daily_limits(limit):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('UPDATE users SET daily_limit = ? WHERE is_premium = 0', (limit,))
-        await db.commit()
-
-async def expire_premium_users():
-    async with aiosqlite.connect(DATABASE_NAME) as db:
-        now = datetime.datetime.now()
-        await db.execute('UPDATE users SET is_premium = 0 WHERE is_premium = 1 AND premium_until < ?', (now,))
         await db.commit()
 
 async def claim_daily_bonus(user_id, bonus_amount):
@@ -222,7 +191,6 @@ async def redeem_promo(user_id, code):
         async with db.execute('SELECT 1 FROM promo_redemptions WHERE user_id = ? AND code = ?', (user_id, code)) as cursor:
             if await cursor.fetchone(): return "already"
         
-        # Premium kunlarini qo'shish
         if promo["premium_days"] > 0:
             user = await get_user(user_id)
             current_until = user["premium_until"]
@@ -235,7 +203,6 @@ async def redeem_promo(user_id, code):
             new_until = start_dt + datetime.timedelta(days=promo["premium_days"])
             await db.execute('UPDATE users SET is_premium = 1, premium_until = ? WHERE id = ?', (new_until, user_id))
         
-        # Qo'shimcha so'rovlar qo'shish
         if promo["extra_requests"] > 0:
             await db.execute('UPDATE users SET daily_limit = daily_limit + ? WHERE id = ?', (promo["extra_requests"], user_id))
             

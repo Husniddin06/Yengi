@@ -6,11 +6,6 @@ from aiogram.types import (
 )
 
 MENU_LABELS = {
-    "uz": {
-        "balance": "📊 Balans", "premium": "💎 Premium", "ref": "👥 Do'stlar",
-        "help": "🆘 Yordam", "clear": "🗑 Tozalash", "image": "🎨 Rasm",
-        "lang": "🌐 Til", "bonus": "🎁 Bonus",
-    },
     "ru": {
         "balance": "📊 Баланс", "premium": "💎 Премиум", "ref": "👥 Друзья",
         "help": "🆘 Помощь", "clear": "🗑 Очистить", "image": "🎨 Картинка",
@@ -36,7 +31,9 @@ BTN_LANG = _all_labels("lang")
 BTN_BONUS = _all_labels("bonus")
 
 def main_menu(lang: str = "en") -> ReplyKeyboardMarkup:
-    L = MENU_LABELS.get(lang, MENU_LABELS["en"])
+    if lang not in MENU_LABELS:
+        lang = "en"
+    L = MENU_LABELS[lang]
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=L["balance"]), KeyboardButton(text=L["premium"])],
@@ -50,7 +47,6 @@ def main_menu(lang: str = "en") -> ReplyKeyboardMarkup:
 def lang_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="setlang_uz")],
             [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="setlang_ru")],
             [InlineKeyboardButton(text="🇬🇧 English", callback_data="setlang_en")],
         ]
