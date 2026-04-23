@@ -43,6 +43,9 @@ TEXTS = {
         "char_set": "🎭 Персонаж изменен на: {name}",
         "vision_info": "📸 <b>Prompt from Photo:</b>\nОтправьте фото, и я составлю для него идеальный промт для генерации похожих изображений!",
         "voice_processing": "🎙 Обрабатываю голосовое сообщение...",
+        "stars_title": "Premium + 150 монет",
+        "stars_desc": "Активация Premium и начисление 150 монет.",
+        "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n\n👇 Choose functions in the menu below:",
@@ -61,6 +64,9 @@ TEXTS = {
         "char_set": "🎭 Character changed to: {name}",
         "vision_info": "📸 <b>Prompt from Photo:</b>\nSend a photo, and I will create the perfect prompt for generating similar images!",
         "voice_processing": "🎙 Processing voice message...",
+        "stars_title": "Premium + 150 Coins",
+        "stars_desc": "Activate Premium and get 150 coins.",
+        "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
     }
 }
 
@@ -154,6 +160,56 @@ async def handle_help(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     await message.answer(TEXTS[lang]["help"])
+
+# --- Payment Handlers ---
+@user_router.callback_query(F.data == "pay_sbp_request")
+async def pay_sbp_request(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
+    
+    # Notify Admin
+    await cb.bot.send_message(
+        ADMIN_ID,
+        f"💳 <b>New SBP Payment Request</b>\nUser: {cb.from_user.username} (ID: {cb.from_user.id})\nAmount: 75₽\n\nUse /admin to confirm.",
+        reply_markup=admin_payment_confirm_keyboard(payment_id)
+    )
+    
+    await cb.message.answer(TEXTS[lang]["sbp_request_sent"])
+    await cb.answer()
+
+@user_router.callback_query(F.data == "pay_stars_1month")
+async def pay_stars_1month(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    
+    prices = [LabeledPrice(label="Premium", amount=50)]
+    await cb.bot.send_invoice(
+        chat_id=cb.from_user.id,
+        title=TEXTS[lang]["stars_title"],
+        description=TEXTS[lang]["stars_desc"],
+        payload="premium_1month_stars",
+        provider_token="", # Empty for Telegram Stars
+        currency="XTR",
+        prices=prices
+    )
+    await cb.answer()
+
+@user_router.pre_checkout_query()
+async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+@user_router.message(F.successful_payment)
+async def process_successful_payment(message: Message):
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    lang = user['language_code']
+    
+    # Update DB
+    await db.update_user_coins(user_id, 150)
+    await db.update_user_premium(user_id, True, datetime.now() + timedelta(days=30))
+    
+    await message.answer(TEXTS[lang]["payment_success"])
 
 # --- Voice Message Handler ---
 @user_router.message(F.voice)
