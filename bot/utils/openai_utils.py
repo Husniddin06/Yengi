@@ -57,13 +57,11 @@ async def get_free_ai_response(prompt: str) -> str:
         return "⚠️ An error occurred. Please try again."
 
 async def get_chat_response(user_message: str, history: list = None) -> str:
-    # If no OpenAI key, use free model
     if not client:
         return await get_free_ai_response(user_message)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
-        # Filter history to ensure it's in the correct format for OpenAI
         for h in history:
             if isinstance(h, dict) and "role" in h and "content" in h:
                 messages.append(h)
@@ -81,21 +79,35 @@ async def get_chat_response(user_message: str, history: list = None) -> str:
         logger.error(f"OpenAI Error: {e}")
         return await get_free_ai_response(user_message)
 
-async def generate_image(prompt: str) -> str:
+async def generate_image(prompt: str, style: str = "standard") -> str:
+    """
+    Generates an image using DALL-E 3 or Pollinations.
+    If style is 'banana', it applies the Nano Banana trend prompt engineering.
+    """
+    final_prompt = prompt
+    if style == "banana":
+        # Nano Banana trend prompt engineering
+        final_prompt = (
+            f"Ultra-realistic, cinematic, high-detail 3D render of {prompt} in a viral 'Nano Banana' style. "
+            "The subject should be creatively integrated with a banana theme, funny, cute, or surreal. "
+            "Vibrant colors, studio lighting, 8k resolution, trending on social media, Gemini AI style."
+        )
+    
     try:
         if client:
             response = await client.images.generate(
                 model="dall-e-3", 
-                prompt=prompt, 
+                prompt=final_prompt, 
                 n=1,
-                size="1024x1024"
+                size="1024x1024",
+                quality="hd" if style == "banana" else "standard"
             )
             return response.data[0].url
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
     
     # Fallback to free image generator
-    encoded = urllib.parse.quote(prompt)
+    encoded = urllib.parse.quote(final_prompt)
     return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:

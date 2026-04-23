@@ -33,7 +33,7 @@ TEXTS = {
         "help": "🆘 Помощь:\n/start - Перезапуск\n/lang - Смена языка\nЧат с ботом БЕСПЛАТНЫЙ. Nano Image - 3 раза в день.",
         "history_cleared": "🗑 История диалога очищена.",
         "image_prompt": "🎨 Nano Image: Отправьте описание картинки (Лимит: 3 в день).",
-        "banana_prompt": "🍌 Nano Banana: Отправьте описание для создания бананового арта!",
+        "banana_prompt": "🍌 Nano Banana Trend: Отправьте описание для создания вирального бананового арта! (Например: 'кот-космонавт')",
         "generating_image": "🎨 Генерирую изображение, пожалуйста подождите...",
         "bonus_claimed": "🎁 Вы получили бонус: +1 монета!",
         "bonus_already": "❌ Вы уже получили бонус сегодня.",
@@ -53,7 +53,7 @@ TEXTS = {
         "help": "🆘 Help:\n/start - Restart\n/lang - Change language\nChatting is FREE. Nano Image limit: 3 per day.",
         "history_cleared": "🗑 Conversation history cleared.",
         "image_prompt": "🎨 Nano Image: Send a description (Limit: 3 per day).",
-        "banana_prompt": "🍌 Nano Banana: Send a description to create banana art!",
+        "banana_prompt": "🍌 Nano Banana Trend: Send a description to create viral banana art! (e.g., 'astronaut cat')",
         "generating_image": "🎨 Generating image, please wait...",
         "bonus_claimed": "🎁 You received a bonus: +1 coin!",
         "bonus_already": "❌ You already claimed your bonus today.",
@@ -153,7 +153,6 @@ async def pay_sbp_request(cb: CallbackQuery):
     lang = user['language_code']
     payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
     
-    # Admin xabari
     from bot.utils.keyboards import admin_payment_confirm_keyboard
     admin_text = f"💳 <b>New SBP Payment Request!</b>\nUser: {cb.from_user.full_name} (@{cb.from_user.username})\nID: {cb.from_user.id}\nAmount: 75₽\nPayment ID: {payment_id}"
     await cb.bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_payment_confirm_keyboard(payment_id))
@@ -230,9 +229,9 @@ async def process_banana_generation(message: Message, state: FSMContext):
     await message.answer(TEXTS[lang]["generating_image"])
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
     try:
-        banana_prompt = f"Banana style art: {message.text}"
-        image_url = await generate_image(banana_prompt)
-        await message.answer_photo(photo=image_url, caption=f"🍌 Nano Banana: {message.text[:100]}")
+        # Using the 'banana' style for Nano Banana trend
+        image_url = await generate_image(message.text, style="banana")
+        await message.answer_photo(photo=image_url, caption=f"🍌 Nano Banana Trend: {message.text[:100]}")
     except Exception as e:
         logger.error(f"Error in banana generation: {e}")
         await message.answer(TEXTS[lang]["error"])
