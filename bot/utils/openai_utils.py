@@ -11,13 +11,11 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-# Foydalanuvchi so'raganidek GPT-4o modelini asosiy qilamiz
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # OpenAI client
 client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-# Foydalanuvchi yuborgan System Prompt
 SYSTEM_PROMPT = """
 You are a premium AI assistant like ChatGPT.
 
@@ -52,34 +50,21 @@ CHARACTERS = {
 }
 
 def _strip_ads(text: str) -> str:
-    """Remove ad blocks from Pollinations response."""
-    if not text:
-        return text
-    markers = [
-        "**Support Pollinations",
-        "🌸 **Ad**",
-        "🌸 Ad 🌸",
-        "Powered by Pollinations",
-        "pollinations.ai/redirect",
-    ]
+    if not text: return text
+    markers = ["**Support Pollinations", "🌸 **Ad**", "🌸 Ad 🌸", "Powered by Pollinations", "pollinations.ai/redirect"]
     lowest = len(text)
     for m in markers:
         idx = text.find(m)
-        if idx != -1 and idx < lowest:
-            lowest = idx
+        if idx != -1 and idx < lowest: lowest = idx
     text = text[:lowest]
     text = re.sub(r"\n-{3,}\s*$", "", text)
     return text.strip()
 
 async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
-    """Free model (Pollinations) - used when OpenAI fails or key is missing"""
     try:
-        if not system_prompt:
-            system_prompt = SYSTEM_PROMPT
-        
+        if not system_prompt: system_prompt = SYSTEM_PROMPT
         encoded_prompt = urllib.parse.quote(prompt)
         url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(system_prompt)}&search=true"
-        
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=25) as resp:
                 if resp.status == 200:
@@ -91,37 +76,22 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
         return "⚠️ An error occurred. Please try again."
 
 async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
-    # Character bo'yicha system promptni tanlash
     base_system = CHARACTERS.get(character, SYSTEM_PROMPT)
-    
-    # If no client, use free model immediately
-    if not client:
-        return await get_free_ai_response(user_message, base_system)
-
+    if not client: return await get_free_ai_response(user_message, base_system)
     messages = [{"role": "system", "content": base_system}]
-    
-    # Foydalanuvchi yuborgan kod kabi oxirgi 10 ta xabarni olamiz
     if history:
-        # Oxirgi 10 ta xabarni filtrlash
         recent_history = history[-10:]
         for h in recent_history:
             if isinstance(h, dict) and "role" in h and "content" in h:
                 messages.append(h)
-    
     messages.append({"role": "user", "content": user_message})
-
     try:
         response = await client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=messages,
-            temperature=0.8, # Foydalanuvchi yuborgan temperature
-            max_tokens=1000, # Foydalanuvchi yuborgan max_tokens
-            timeout=30
+            model=CHAT_MODEL, messages=messages, temperature=0.8, max_tokens=1000, timeout=30
         )
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI Error: {e}")
-        # Fallback to free model on any OpenAI error
         return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
@@ -132,29 +102,46 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
             "The subject should be creatively integrated with a banana theme, funny, cute, or surreal. "
             "Vibrant colors, studio lighting, 8k resolution, trending on social media, Gemini AI style."
         )
-    
     try:
         if client:
             response = await client.images.generate(
-                model="dall-e-3", 
-                prompt=final_prompt, 
-                n=1,
-                size="1024x1024",
-                quality="hd" if style == "banana" else "standard"
+                model="dall-e-3", prompt=final_prompt, n=1, size="1024x1024", quality="hd" if style == "banana" else "standard"
             )
             return response.data[0].url
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
-    
-    # Fallback to free image generator (Pollinations)
     encoded = urllib.parse.quote(final_prompt)
     return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
 
+async def edit_image_with_face(image_path: str, prompt: str) -> str:
+    """
+    Foydalanuvchi yuborgan mantiq: Yuzni saqlab qolgan holda rasmga ishlov berish.
+    OpenAI 'images.edit' funksiyasidan foydalanadi.
+    """
+    try:
+        if not client:
+            # Fallback: Agar OpenAI bo'lmasa, shunchaki yangi rasm yasaymiz
+            return await generate_image(prompt, style="banana")
+            
+        with open(image_path, "rb") as img:
+            # OpenAI Image Edit API
+            # Eslatma: 'gpt-image-1' o'rniga 'dall-e-2' ishlatiladi (Edit uchun hozircha shu model)
+            response = await client.images.edit(
+                model="dall-e-2",
+                image=img,
+                prompt=f"Keep face identity similar. High realism, cinematic quality. {prompt}",
+                n=1,
+                size="1024x1024"
+            )
+            return response.data[0].url
+    except Exception as e:
+        logger.error(f"Image Edit Error: {e}")
+        # Xatolik bo'lsa, oddiy generatsiyaga o'tamiz
+        return await generate_image(prompt, style="banana")
+
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
-        if not client: 
-            return "📸 Image received! (Vision requires OpenAI API Key)."
-            
+        if not client: return "📸 Image received! (Vision requires OpenAI API Key)."
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = await client.chat.completions.create(
             model=CHAT_MODEL,

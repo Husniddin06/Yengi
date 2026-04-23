@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat, transcribe_audio
+from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat, transcribe_audio, edit_image_with_face
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
     tasks_keyboard, admin_payment_confirm_keyboard, characters_keyboard,
@@ -24,10 +24,11 @@ user_router = Router()
 class UserStates(StatesGroup):
     waiting_for_nano_prompt = State()
     waiting_for_vision_image = State()
+    waiting_for_face_swap_prompt = State()
 
 TEXTS = {
     "ru": {
-        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n\n👇 Выбирай функции в меню ниже:",
+        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n🎭 <b>Face Identity</b>: Пришли фото, а затем описание!",
         "lang_set": "Язык изменен на Русский 🇷🇺",
         "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}\n🎭 Персонаж: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
@@ -41,14 +42,15 @@ TEXTS = {
         "tiktok_msg": "📱 <b>TikTok Режим:</b>\nДля прослушивания и скачивания музыки из TikTok используйте наш партнерский бот: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Хайп Промты для AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nСкопируйте и используйте в Nano Banana!",
         "char_set": "🎭 Персонаж изменен на: {name}",
-        "vision_info": "📸 <b>Prompt from Photo:</b>\nОтправьте фото, и я составлю для него идеальный промт для генерации похожих изображений!",
+        "vision_info": "📸 <b>Face Identity / Prompt:</b>\n1. Отправьте фото.\n2. Затем напишите описание (например: 'в стиле киберпанк').\nЯ создам арт, сохранив ваше лицо!",
         "voice_processing": "🎙 Обрабатываю голосовое сообщение...",
         "stars_title": "Premium + 150 монет",
         "stars_desc": "Активация Premium и начисление 150 монет.",
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
+        "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) для обработки:",
     },
     "en": {
-        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n\n👇 Choose functions in the menu below:",
+        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Send photo, then a prompt!",
         "lang_set": "Language set to English 🇬🇧",
         "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}\n🎭 Character: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
@@ -62,11 +64,12 @@ TEXTS = {
         "tiktok_msg": "📱 <b>TikTok Mode:</b>\nTo listen and download music from TikTok, use our partner bot: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Hype Prompts for AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nCopy and use in Nano Banana!",
         "char_set": "🎭 Character changed to: {name}",
-        "vision_info": "📸 <b>Prompt from Photo:</b>\nSend a photo, and I will create the perfect prompt for generating similar images!",
+        "vision_info": "📸 <b>Face Identity / Prompt:</b>\n1. Send a photo.\n2. Then write a description (e.g., 'cyberpunk style').\nI will create art while keeping your face!",
         "voice_processing": "🎙 Processing voice message...",
         "stars_title": "Premium + 150 Coins",
         "stars_desc": "Activate Premium and get 150 coins.",
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
+        "photo_saved": "✅ Photo saved! Now write a description (prompt) for processing:",
     }
 }
 
@@ -167,14 +170,11 @@ async def pay_sbp_request(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
     lang = user['language_code']
     payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
-    
-    # Notify Admin
     await cb.bot.send_message(
         ADMIN_ID,
         f"💳 <b>New SBP Payment Request</b>\nUser: {cb.from_user.username} (ID: {cb.from_user.id})\nAmount: 75₽\n\nUse /admin to confirm.",
         reply_markup=admin_payment_confirm_keyboard(payment_id)
     )
-    
     await cb.message.answer(TEXTS[lang]["sbp_request_sent"])
     await cb.answer()
 
@@ -182,14 +182,13 @@ async def pay_sbp_request(cb: CallbackQuery):
 async def pay_stars_1month(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
     lang = user['language_code']
-    
     prices = [LabeledPrice(label="Premium", amount=50)]
     await cb.bot.send_invoice(
         chat_id=cb.from_user.id,
         title=TEXTS[lang]["stars_title"],
         description=TEXTS[lang]["stars_desc"],
         payload="premium_1month_stars",
-        provider_token="", # Empty for Telegram Stars
+        provider_token="",
         currency="XTR",
         prices=prices
     )
@@ -204,11 +203,8 @@ async def process_successful_payment(message: Message):
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     lang = user['language_code']
-    
-    # Update DB
     await db.update_user_coins(user_id, 150)
     await db.update_user_premium(user_id, True, datetime.now() + timedelta(days=30))
-    
     await message.answer(TEXTS[lang]["payment_success"])
 
 # --- Voice Message Handler ---
@@ -217,19 +213,15 @@ async def handle_voice(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     await message.answer(TEXTS[lang]["voice_processing"])
-    
     try:
         file_id = message.voice.file_id
         file = await message.bot.get_file(file_id)
         file_path = f"voice_{file_id}.ogg"
         await message.bot.download_file(file.file_path, file_path)
-        
         text = await transcribe_audio(file_path)
         os.remove(file_path)
-        
         if text:
             await message.answer(f"🎙 <b>Transcription:</b>\n\n{text}", parse_mode="HTML")
-            # Process as chat message
             history = await db.get_chat_history(message.from_user.id)
             response = await get_chat_response(text, history, character=user.get('current_character', 'default'))
             await db.save_conversation(message.from_user.id, text, response)
@@ -265,19 +257,41 @@ async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
+    
+    # Save photo for Face Identity
+    file = await message.bot.get_file(photo.file_id)
+    file_path = f"face_{message.from_user.id}.jpg"
+    await message.bot.download_file(file.file_path, file_path)
+    
+    await state.update_data(face_photo_path=file_path)
+    await message.answer(TEXTS[lang]["photo_saved"])
+    await state.set_state(UserStates.waiting_for_face_swap_prompt)
+
+@user_router.message(UserStates.waiting_for_face_swap_prompt)
+async def process_face_swap(message: Message, state: FSMContext):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    if user['coins'] < 10:
+        await message.answer(TEXTS[lang]["no_coins"])
+        await state.clear()
+        return
+        
+    data = await state.get_data()
+    photo_path = data.get("face_photo_path")
+    
     await message.answer(TEXTS[lang]["generating_image"])
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
+    
     try:
-        file = await message.bot.get_file(photo.file_id)
-        file_url = f"https://api.telegram.org/file/bot{message.bot.token}/{file.file_path}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(file_url) as resp:
-                if resp.status == 200:
-                    image_bytes = await resp.read()
-                    prompt = await analyze_image_and_chat("Create a highly detailed AI generation prompt for this image. Output ONLY the prompt text.", image_bytes)
-                    await message.answer(f"✅ <b>Generated Prompt:</b>\n\n<code>{prompt}</code>", parse_mode="HTML")
+        image_url = await edit_image_with_face(photo_path, message.text)
+        await message.answer_photo(photo=image_url, caption=f"🎭 Face Identity: {message.text[:100]}")
+        await db.update_user_coins(message.from_user.id, -10)
     except Exception as e:
-        logger.error(f"Error in vision: {e}")
+        logger.error(f"Error in face swap: {e}")
         await message.answer(TEXTS[lang]["error"])
+    finally:
+        if photo_path and os.path.exists(photo_path):
+            os.remove(photo_path)
     await state.clear()
 
 @user_router.message(F.text)
