@@ -48,10 +48,18 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
     try:
         if not system_prompt:
             system_prompt = CHARACTERS["default"]
+        
+        # Add search capability to prompt if it looks like a search query
+        search_keywords = ["news", "today", "current", "price", "weather", "latest"]
+        if any(word in prompt.lower() for word in search_keywords):
+            prompt = f"Search the web for: {prompt}. Provide the latest information."
+
         encoded_prompt = urllib.parse.quote(prompt)
-        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(system_prompt)}"
+        # Using search=true for web search capability in Pollinations
+        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(system_prompt)}&search=true"
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=20) as resp:
+            async with session.get(url, timeout=25) as resp:
                 if resp.status == 200:
                     raw_text = await resp.text()
                     return _strip_ads(raw_text)
@@ -63,6 +71,7 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
 async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
     system_prompt = CHARACTERS.get(character, CHARACTERS["default"])
     
+    # If no client, use free model immediately
     if not client:
         return await get_free_ai_response(user_message, system_prompt)
 
@@ -83,6 +92,7 @@ async def get_chat_response(user_message: str, history: list = None, character: 
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI Error: {e}")
+        # Fallback to free model on any OpenAI error
         return await get_free_ai_response(user_message, system_prompt)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
@@ -98,6 +108,11 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
             "The subject should be creatively integrated with a banana theme, funny, cute, or surreal. "
             "Vibrant colors, studio lighting, 8k resolution, trending on social media, Gemini AI style."
         )
+    elif style == "video_prompt":
+        final_prompt = (
+            f"Cinematic video frame of {prompt}, Sora 2 style, hyper-realistic, 4k, motion blur, "
+            "dynamic lighting, professional cinematography."
+        )
     
     try:
         if client:
@@ -112,20 +127,23 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
     
-    # Fallback to free image generator
+    # Fallback to free image generator (Pollinations)
     encoded = urllib.parse.quote(final_prompt)
-    return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+    return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
-        if not client: return "⚠️ OpenAI key is missing."
+        if not client: 
+            # If no OpenAI, we can't do vision easily, but we can try a generic response
+            return "📸 Image received! (Vision requires OpenAI API Key). To get a prompt, please ensure your API key is active."
+            
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": CHARACTERS["default"]},
                 {"role": "user", "content": [
-                    {"type": "text", "text": prompt or "Analyze this image"},
+                    {"type": "text", "text": prompt or "Analyze this image and provide a detailed generation prompt for it."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}
             ],
@@ -134,14 +152,14 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Vision Error: {e}")
-        return f"⚠️ Error: {str(e)}"
+        return f"⚠️ Vision Error: {str(e)}. Please check your API key or try again later."
 
 async def transcribe_audio(file_path: str) -> str:
     try:
-        if not client: return ""
+        if not client: return "🎙 Audio received! (Transcription requires OpenAI API Key)."
         with open(file_path, "rb") as f:
             ts = await client.audio.transcriptions.create(model="whisper-1", file=f)
             return ts.text
     except Exception as e:
         logger.error(f"Whisper Error: {e}")
-        return ""
+        return "⚠️ Audio Error. Please try again."

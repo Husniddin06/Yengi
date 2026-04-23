@@ -2,7 +2,7 @@ import os
 import logging
 import aiohttp
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, ContentType
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatAction
 from aiogram.fsm.context import FSMContext
@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat
+from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat, transcribe_audio
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
     tasks_keyboard, admin_payment_confirm_keyboard, characters_keyboard,
@@ -27,7 +27,7 @@ class UserStates(StatesGroup):
 
 TEXTS = {
     "ru": {
-        "welcome": "👋 Привет! Я твой персональный ИИ ассистент.\n\n— домашка, посты, идеи.\n👁 Анализировать фото — скинь картинку, и я всё расскажу!\n🎨 Рисовать арты (Nano Banana) — аватарки, обложки.\n\n👇 Выбирай функции в меню ниже:",
+        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n\n👇 Выбирай функции в меню ниже:",
         "lang_set": "Язык изменен на Русский 🇷🇺",
         "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}\n🎭 Персонаж: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
@@ -42,9 +42,10 @@ TEXTS = {
         "hype_prompts": "🔥 <b>Хайп Промты для AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nСкопируйте и используйте в Nano Banana!",
         "char_set": "🎭 Персонаж изменен на: {name}",
         "vision_info": "📸 <b>Prompt from Photo:</b>\nОтправьте фото, и я составлю для него идеальный промт для генерации похожих изображений!",
+        "voice_processing": "🎙 Обрабатываю голосовое сообщение...",
     },
     "en": {
-        "welcome": "👋 Hello! I am your personal AI assistant.\n\n— homework, posts, ideas.\n👁 Analyze photo — send a picture, and I'll tell you everything!\n🎨 Draw arts (Nano Banana) — avatars, covers.\n\n👇 Choose functions in the menu below:",
+        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n\n👇 Choose functions in the menu below:",
         "lang_set": "Language set to English 🇬🇧",
         "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}\n🎭 Character: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
@@ -59,6 +60,7 @@ TEXTS = {
         "hype_prompts": "🔥 <b>Hype Prompts for AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nCopy and use in Nano Banana!",
         "char_set": "🎭 Character changed to: {name}",
         "vision_info": "📸 <b>Prompt from Photo:</b>\nSend a photo, and I will create the perfect prompt for generating similar images!",
+        "voice_processing": "🎙 Processing voice message...",
     }
 }
 
@@ -81,7 +83,7 @@ async def cmd_start(message: Message):
         user = await db.get_user(message.from_user.id)
     
     lang = user['language_code'] if user and user['language_code'] else "en"
-    await message.answer(TEXTS[lang]["welcome"], reply_markup=main_reply_menu(lang))
+    await message.answer(TEXTS[lang]["welcome"], reply_markup=main_reply_menu(lang), parse_mode="HTML")
 
 # --- Reply Keyboard Handlers ---
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["nano"], MENU_LABELS["en"]["nano"]]))
@@ -111,7 +113,7 @@ async def handle_characters(message: Message):
 async def handle_tiktok(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    await message.answer(TEXTS[lang]["tiktok_msg"])
+    await message.answer(TEXTS[lang]["tiktok_msg"], parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["profile"], MENU_LABELS["en"]["profile"]]))
 async def handle_profile(message: Message):
@@ -128,7 +130,7 @@ async def handle_profile(message: Message):
 async def handle_vip(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    await message.answer(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang))
+    await message.answer(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang), parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["hype"], MENU_LABELS["en"]["hype"]]))
 async def handle_hype(message: Message):
@@ -152,6 +154,35 @@ async def handle_help(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     await message.answer(TEXTS[lang]["help"])
+
+# --- Voice Message Handler ---
+@user_router.message(F.voice)
+async def handle_voice(message: Message):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    await message.answer(TEXTS[lang]["voice_processing"])
+    
+    try:
+        file_id = message.voice.file_id
+        file = await message.bot.get_file(file_id)
+        file_path = f"voice_{file_id}.ogg"
+        await message.bot.download_file(file.file_path, file_path)
+        
+        text = await transcribe_audio(file_path)
+        os.remove(file_path)
+        
+        if text:
+            await message.answer(f"🎙 <b>Transcription:</b>\n\n{text}", parse_mode="HTML")
+            # Process as chat message
+            history = await db.get_chat_history(message.from_user.id)
+            response = await get_chat_response(text, history, character=user.get('current_character', 'default'))
+            await db.save_conversation(message.from_user.id, text, response)
+            await message.answer(response, parse_mode="Markdown")
+        else:
+            await message.answer(TEXTS[lang]["error"])
+    except Exception as e:
+        logger.error(f"Voice Error: {e}")
+        await message.answer(TEXTS[lang]["error"])
 
 # --- State Handlers ---
 @user_router.message(UserStates.waiting_for_nano_prompt)
