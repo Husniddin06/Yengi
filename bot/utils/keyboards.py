@@ -52,6 +52,26 @@ def main_inline_menu(lang: str = "en") -> InlineKeyboardMarkup:
         ]
     )
 
+def characters_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
+    chars = {
+        "ru": [
+            ("🍌 Банан-Шутник", "char_funny_banana"),
+            ("🧠 Мудрый Советник", "char_wise_advisor"),
+            ("🎨 Арт-Дизайнер", "char_art_designer"),
+            ("🤖 Стандартный ИИ", "char_default")
+        ],
+        "en": [
+            ("🍌 Funny Banana", "char_funny_banana"),
+            ("🧠 Wise Advisor", "char_wise_advisor"),
+            ("🎨 Art Designer", "char_art_designer"),
+            ("🤖 Default AI", "char_default")
+        ]
+    }
+    L = chars.get(lang, chars["en"])
+    keyboard = [[InlineKeyboardButton(text=name, callback_data=data)] for name, data in L]
+    keyboard.append([InlineKeyboardButton(text="⬅️ Back", callback_data="menu_back")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 def lang_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

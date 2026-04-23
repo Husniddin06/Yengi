@@ -22,7 +22,8 @@ async def init_db():
                 referrals_count INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 language_code TEXT DEFAULT 'en',
-                is_blocked BOOLEAN DEFAULT FALSE
+                is_blocked BOOLEAN DEFAULT FALSE,
+                current_character TEXT DEFAULT 'default'
             )
         ''')
         
@@ -40,7 +41,7 @@ async def init_db():
             )
         ''')
         
-        # Tasks table (for admin to add channels/tasks)
+        # Tasks table
         await db.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,6 +119,11 @@ async def update_user_premium(user_id, is_premium, until):
         await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', (is_premium, until, user_id))
         await db.commit()
 
+async def update_user_character(user_id, character):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute('UPDATE users SET current_character = ? WHERE id = ?', (character, user_id))
+        await db.commit()
+
 # --- Task Functions ---
 async def add_task(title, url, reward=5):
     async with aiosqlite.connect(DATABASE_NAME) as db:
@@ -144,7 +150,7 @@ async def complete_task(user_id, task_id):
             await db.commit()
             return True
         except aiosqlite.IntegrityError:
-            return False # Already completed
+            return False
 
 # --- Payment Functions ---
 async def add_payment(user_id, amount, method):
@@ -178,9 +184,7 @@ async def approve_payment(payment_id, admin_id):
 # --- Scheduler Functions ---
 async def daily_coin_deduction():
     async with aiosqlite.connect(DATABASE_NAME) as db:
-        # Har kuni 5 tanga ayirish (kamida 0 gacha)
         await db.execute('UPDATE users SET coins = CASE WHEN coins >= 5 THEN coins - 5 ELSE 0 END')
-        # Rasm limitini yangilash (kuniga 3 ta)
         await db.execute('UPDATE users SET daily_image_limit = 3')
         await db.commit()
 

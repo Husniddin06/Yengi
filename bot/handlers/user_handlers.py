@@ -13,7 +13,7 @@ from bot.database import db
 from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat
 from bot.utils.keyboards import (
     main_inline_menu, lang_keyboard, payment_options_keyboard,
-    tasks_keyboard, admin_payment_confirm_keyboard
+    tasks_keyboard, admin_payment_confirm_keyboard, characters_keyboard
 )
 from bot.config import ADMIN_ID
 
@@ -29,7 +29,7 @@ TEXTS = {
     "ru": {
         "welcome": "👋 Привет! Я твой персональный ИИ ассистент.\n\n— домашка, посты, идеи.\n👁 Анализировать фото — скинь картинку, и я всё расскажу!\n🎨 Рисовать арты (Nano Banana) — аватарки, обложки.\n🎬 Замена лица на фото (DeepFake) — скоро!\n\n👇 Тыкай кнопки внизу, не стесняйся:",
         "lang_set": "Язык изменен на Русский 🇷🇺",
-        "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}",
+        "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}\n🎭 Персонаж: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
         "help": "🆘 Помощь:\n/start - Перезапуск\nЧat с ботом БЕСПЛАТНЫЙ.\nNano Banana - 10 монет за фото.",
         "nano_prompt": "🎨 <b>Nano Banana Trend:</b>\nОтправьте описание для создания вирального бананового арта! (Например: 'кот-космонавт')",
@@ -47,11 +47,15 @@ TEXTS = {
         "tasks_title": "🎁 <b>Задания:</b>\nВыполняйте задания и получайте монеты!",
         "task_completed": "✅ Задание выполнено! Вам начислено {reward} монет.",
         "task_already": "❌ Вы уже получили награду за это задание.",
+        "tiktok_msg": "📱 <b>TikTok Режим:</b>\nДля прослушивания и скачивания музыки из TikTok используйте наш партнерский бот: @VkMuzicXbot",
+        "hype_prompts": "🔥 <b>Хайп Промты для AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nСкопируйте и используйте в Nano Banana!",
+        "char_set": "🎭 Персонаж изменен на: {name}",
+        "vision_info": "📸 <b>Prompt from Photo:</b>\nОтправьте фото, и я составлю для него идеальный промт для генерации похожих изображений!",
     },
     "en": {
         "welcome": "👋 Hello! I am your personal AI assistant.\n\n— homework, posts, ideas.\n👁 Analyze photo — send a picture, and I'll tell you everything!\n🎨 Draw arts (Nano Banana) — avatars, covers.\n🎬 Face swap on photo (DeepFake) — coming soon!\n\n👇 Click the buttons below, don't be shy:",
         "lang_set": "Language set to English 🇬🇧",
-        "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}",
+        "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}\n🎭 Character: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
         "help": "🆘 Help:\n/start - Restart\nChatting is FREE.\nNano Banana - 10 coins per photo.",
         "nano_prompt": "🎨 <b>Nano Banana Trend:</b>\nSend a description to create viral banana art! (e.g., 'astronaut cat')",
@@ -69,6 +73,10 @@ TEXTS = {
         "tasks_title": "🎁 <b>Tasks:</b>\nComplete tasks and get coins!",
         "task_completed": "✅ Task completed! You received {reward} coins.",
         "task_already": "❌ You already received a reward for this task.",
+        "tiktok_msg": "📱 <b>TikTok Mode:</b>\nTo listen and download music from TikTok, use our partner bot: @VkMuzicXbot",
+        "hype_prompts": "🔥 <b>Hype Prompts for AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nCopy and use in Nano Banana!",
+        "char_set": "🎭 Character changed to: {name}",
+        "vision_info": "📸 <b>Prompt from Photo:</b>\nSend a photo, and I will create the perfect prompt for generating similar images!",
     }
 }
 
@@ -100,16 +108,42 @@ async def menu_back(cb: CallbackQuery):
     await cb.message.edit_text(TEXTS[lang]["welcome"], reply_markup=main_inline_menu(lang))
     await cb.answer()
 
-@user_router.callback_query(F.data == "menu_lang")
-async def menu_lang(cb: CallbackQuery):
-    await cb.message.edit_text("Choose language / Выберите язык:", reply_markup=lang_keyboard())
+@user_router.callback_query(F.data == "menu_tiktok")
+async def menu_tiktok(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    await cb.message.answer(TEXTS[lang]["tiktok_msg"])
     await cb.answer()
 
-@user_router.callback_query(F.data.startswith("setlang_"))
-async def set_language(cb: CallbackQuery):
-    lang = cb.data.split("_")[1]
-    await db.update_user_language(cb.from_user.id, lang)
-    await cb.message.edit_text(TEXTS[lang]["lang_set"])
+@user_router.callback_query(F.data == "menu_hype")
+async def menu_hype(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    await cb.message.answer(TEXTS[lang]["hype_prompts"], parse_mode="HTML")
+    await cb.answer()
+
+@user_router.callback_query(F.data == "menu_chars")
+async def menu_chars(cb: CallbackQuery):
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    await cb.message.edit_text("🎭 Choose your AI Character:", reply_markup=characters_keyboard(lang))
+    await cb.answer()
+
+@user_router.callback_query(F.data.startswith("char_"))
+async def set_character(cb: CallbackQuery):
+    char = cb.data.split("_", 1)[1]
+    user = await db.get_user(cb.from_user.id)
+    lang = user['language_code']
+    await db.update_user_character(cb.from_user.id, char)
+    
+    char_names = {
+        "funny_banana": "Funny Banana 🍌",
+        "wise_advisor": "Wise Advisor 🧠",
+        "art_designer": "Art Designer 🎨",
+        "default": "Default AI 🤖"
+    }
+    name = char_names.get(char, "Default AI")
+    await cb.message.edit_text(TEXTS[lang]["char_set"].format(name=name))
     await cb.message.answer(TEXTS[lang]["welcome"], reply_markup=main_inline_menu(lang))
     await cb.answer()
 
@@ -118,33 +152,45 @@ async def menu_profile(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
     lang = user['language_code']
     premium_status = "✅" if user['is_premium'] else "❌"
+    char_name = user.get('current_character', 'default').replace('_', ' ').title()
     text = TEXTS[lang]["profile"].format(
-        id=user['id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count']
+        id=user['id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
     )
     await cb.message.edit_text(text, reply_markup=main_inline_menu(lang), parse_mode="HTML")
     await cb.answer()
 
-@user_router.callback_query(F.data == "menu_tasks")
-async def menu_tasks(cb: CallbackQuery):
+@user_router.callback_query(F.data == "menu_vision")
+async def menu_vision(cb: CallbackQuery, state: FSMContext):
     user = await db.get_user(cb.from_user.id)
     lang = user['language_code']
-    tasks = await db.get_active_tasks()
-    await cb.message.edit_text(TEXTS[lang]["tasks_title"], reply_markup=tasks_keyboard(tasks, lang), parse_mode="HTML")
+    await cb.message.answer(TEXTS[lang]["vision_info"], parse_mode="HTML")
+    await state.set_state(UserStates.waiting_for_vision_image)
     await cb.answer()
 
-@user_router.callback_query(F.data.startswith("check_task_"))
-async def check_task(cb: CallbackQuery):
-    task_id = int(cb.data.split("_")[2])
-    user = await db.get_user(cb.from_user.id)
+@user_router.message(UserStates.waiting_for_vision_image, F.photo)
+async def process_vision_image(message: Message, state: FSMContext):
+    photo: PhotoSize = message.photo[-1]
+    user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     
-    # In a real bot, you would check if user is actually in the channel
-    # For now, we assume they did it if they clicked check
-    success = await db.complete_task(cb.from_user.id, task_id)
-    if success:
-        await cb.answer(TEXTS[lang]["task_completed"].format(reward=5), show_alert=True)
-    else:
-        await cb.answer(TEXTS[lang]["task_already"], show_alert=True)
+    await message.answer(TEXTS[lang]["generating_image"])
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+    
+    try:
+        file = await message.bot.get_file(photo.file_id)
+        file_url = f"https://api.telegram.org/file/bot{message.bot.token}/{file.file_path}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(file_url) as resp:
+                if resp.status == 200:
+                    image_bytes = await resp.read()
+                    prompt = await analyze_image_and_chat("Create a highly detailed AI generation prompt for this image. Output ONLY the prompt text.", image_bytes)
+                    await message.answer(f"✅ <b>Generated Prompt:</b>\n\n<code>{prompt}</code>", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error in vision: {e}")
+        await message.answer(TEXTS[lang]["error"])
+    
+    await state.clear()
 
 @user_router.callback_query(F.data == "menu_nano")
 async def menu_nano(cb: CallbackQuery, state: FSMContext):
@@ -155,14 +201,6 @@ async def menu_nano(cb: CallbackQuery, state: FSMContext):
         return
     await cb.message.answer(TEXTS[lang]["nano_prompt"], parse_mode="HTML")
     await state.set_state(UserStates.waiting_for_nano_prompt)
-    await cb.answer()
-
-@user_router.callback_query(F.data == "menu_vision")
-async def menu_vision(cb: CallbackQuery, state: FSMContext):
-    user = await db.get_user(cb.from_user.id)
-    lang = user['language_code']
-    await cb.message.answer(TEXTS[lang]["vision_prompt"])
-    await state.set_state(UserStates.waiting_for_vision_image)
     await cb.answer()
 
 @user_router.message(UserStates.waiting_for_nano_prompt)
@@ -186,72 +224,17 @@ async def process_nano_generation(message: Message, state: FSMContext):
         await message.answer(TEXTS[lang]["error"])
     await state.clear()
 
-@user_router.message(UserStates.waiting_for_vision_image, F.photo)
-async def process_vision_image(message: Message, state: FSMContext):
-    photo: PhotoSize = message.photo[-1]
-    await state.update_data(photo_id=photo.file_id)
-    await message.answer("📸 Photo received! Now send a prompt or description of what to do with it.")
-    await state.set_state(UserStates.waiting_for_vision_prompt)
-
-@user_router.message(UserStates.waiting_for_vision_prompt)
-async def process_vision_prompt(message: Message, state: FSMContext):
-    data = await state.get_data()
-    photo_id = data.get("photo_id")
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    
-    await message.answer(TEXTS[lang]["generating_image"])
-    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
-    
-    try:
-        # Get photo file
-        file = await message.bot.get_file(photo_id)
-        file_url = f"https://api.telegram.org/file/bot{message.bot.token}/{file.file_path}"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(file_url) as resp:
-                if resp.status == 200:
-                    image_bytes = await resp.read()
-                    # Analyze image and get a detailed prompt
-                    analysis = await analyze_image_and_chat(f"Describe this image in detail for AI image generation, then add this modification: {message.text}", image_bytes)
-                    # Generate new image based on analysis (Image-to-Image effect)
-                    new_image_url = await generate_image(analysis, style="banana")
-                    await message.answer_photo(photo=new_image_url, caption=f"🍌 Nano Banana (Image-to-Image): {message.text[:100]}")
-                    await db.update_user_coins(message.from_user.id, -10)
-    except Exception as e:
-        logger.error(f"Error in vision generation: {e}")
-        await message.answer(TEXTS[lang]["error"])
-    
-    await state.clear()
-
-@user_router.callback_query(F.data == "menu_tariffs")
-async def menu_tariffs(cb: CallbackQuery):
-    user = await db.get_user(cb.from_user.id)
-    lang = user['language_code']
-    await cb.message.edit_text(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang))
-    await cb.answer()
-
-@user_router.callback_query(F.data == "pay_sbp_request")
-async def pay_sbp_request(cb: CallbackQuery):
-    user = await db.get_user(cb.from_user.id)
-    lang = user['language_code']
-    payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
-    
-    admin_text = f"💳 <b>New SBP Payment Request!</b>\nUser: {cb.from_user.full_name} (@{cb.from_user.username})\nID: {cb.from_user.id}\nAmount: 75₽\nPayment ID: {payment_id}"
-    await cb.bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_payment_confirm_keyboard(payment_id))
-    
-    await cb.message.answer(TEXTS[lang]["sbp_request_sent"])
-    await cb.answer()
-
 @user_router.message(F.text)
 async def handle_message(message: Message):
     user = await db.get_user(message.from_user.id)
     if not user: return
     lang = user['language_code']
+    char = user.get('current_character', 'default')
+    
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
     try:
         history = await db.get_chat_history(message.from_user.id)
-        response = await get_chat_response(message.text, history)
+        response = await get_chat_response(message.text, history, character=char)
         await db.save_conversation(message.from_user.id, message.text, response)
         await message.answer(response, parse_mode="Markdown")
     except Exception as e:

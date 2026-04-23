@@ -16,10 +16,12 @@ CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # OpenAI client
 client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-SYSTEM_PROMPT = (
-    "You are a helpful AI assistant. You can answer questions, generate text, and help with various tasks. "
-    "Respond in the language the user is speaking to you in (Russian or English)."
-)
+CHARACTERS = {
+    "funny_banana": "You are a Funny Banana. You love jokes, puns about bananas, and you are very energetic and silly. Use emojis like 🍌, 😂, 🤪.",
+    "wise_advisor": "You are a Wise Advisor. You give deep, thoughtful advice and speak in a calm, professional manner. Use emojis like 🧠, 📚, ✨.",
+    "art_designer": "You are an Art Designer. You are creative, visual, and love talking about colors, styles, and aesthetics. Use emojis like 🎨, 🖌️, 🌈.",
+    "default": "You are a helpful AI assistant. You are polite, concise, and accurate. Respond in the language the user is speaking to you in (Russian or English)."
+}
 
 def _strip_ads(text: str) -> str:
     """Remove ad blocks from Pollinations response."""
@@ -41,11 +43,13 @@ def _strip_ads(text: str) -> str:
     text = re.sub(r"\n-{3,}\s*$", "", text)
     return text.strip()
 
-async def get_free_ai_response(prompt: str) -> str:
+async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
     """Free model (Pollinations) - used when OpenAI fails or key is missing"""
     try:
+        if not system_prompt:
+            system_prompt = CHARACTERS["default"]
         encoded_prompt = urllib.parse.quote(prompt)
-        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(SYSTEM_PROMPT)}"
+        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&system={urllib.parse.quote(system_prompt)}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=20) as resp:
                 if resp.status == 200:
@@ -56,11 +60,13 @@ async def get_free_ai_response(prompt: str) -> str:
         logger.error(f"Free AI Error: {e}")
         return "⚠️ An error occurred. Please try again."
 
-async def get_chat_response(user_message: str, history: list = None) -> str:
+async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
+    system_prompt = CHARACTERS.get(character, CHARACTERS["default"])
+    
     if not client:
-        return await get_free_ai_response(user_message)
+        return await get_free_ai_response(user_message, system_prompt)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     if history:
         for h in history:
             if isinstance(h, dict) and "role" in h and "content" in h:
@@ -77,7 +83,7 @@ async def get_chat_response(user_message: str, history: list = None) -> str:
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI Error: {e}")
-        return await get_free_ai_response(user_message)
+        return await get_free_ai_response(user_message, system_prompt)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
     """
@@ -117,7 +123,7 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": CHARACTERS["default"]},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt or "Analyze this image"},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
