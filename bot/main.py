@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from bot.config import BOT_TOKEN
-from bot.database.db import init_db
+from bot.database.db import init_db, init_extras
 from bot.handlers.user_handlers import user_router
 from bot.handlers.admin_handlers import admin_router
 from bot.utils.scheduler import start_scheduler
@@ -32,6 +32,7 @@ async def main():
 
     try:
         await init_db()
+        await init_extras()
         start_scheduler()
         
         bot = Bot(

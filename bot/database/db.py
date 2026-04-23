@@ -57,6 +57,10 @@ async def init_db():
         ''')
         await db.commit()
 
+async def init_extras():
+    """Placeholder function to prevent import errors in main.py"""
+    pass
+
 # --- User Functions ---
 async def add_user(user_id, username, first_name=None, last_name=None, language_code='en', referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
