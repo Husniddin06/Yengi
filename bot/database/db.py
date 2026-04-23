@@ -1,7 +1,9 @@
 import aiosqlite
 import datetime
+import logging
 
 DATABASE_NAME = 'smartai_bot.db'
+logger = logging.getLogger(__name__)
 
 async def init_db():
     async with aiosqlite.connect(DATABASE_NAME) as db:
@@ -22,10 +24,7 @@ async def init_db():
                 user_notes TEXT DEFAULT ''
             )
         ''')
-        try:
-            await db.execute('ALTER TABLE users ADD COLUMN user_notes TEXT DEFAULT ""')
-        except: pass
-
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS payments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +38,7 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         ''')
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS referrals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +49,7 @@ async def init_db():
                 FOREIGN KEY (referred_id) REFERENCES users(id)
             )
         ''')
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,16 +60,14 @@ async def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         ''')
-        await db.commit()
-
-async def init_extras():
-    async with aiosqlite.connect(DATABASE_NAME) as db:
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS daily_bonus (
                 user_id INTEGER PRIMARY KEY,
                 last_claimed TEXT
             )
         ''')
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS promo_codes (
                 code TEXT PRIMARY KEY,
@@ -78,6 +77,7 @@ async def init_extras():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
         await db.execute('''
             CREATE TABLE IF NOT EXISTS promo_redemptions (
                 user_id INTEGER,
@@ -88,13 +88,20 @@ async def init_extras():
         ''')
         await db.commit()
 
+async def init_extras():
+    # Placeholder for any future extra initialization
+    pass
+
 # --- User Functions ---
-async def add_user(user_id, username, language_code='en', referred_by=None):
+async def add_user(user_id, username, first_name=None, last_name=None, language_code='en', referred_by=None):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('''
-            INSERT OR IGNORE INTO users (id, username, language_code, referred_by)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, username, language_code, referred_by))
+            INSERT OR IGNORE INTO users (id, username, first_name, last_name, language_code, referred_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, username, first_name, last_name, language_code, referred_by))
+        if referred_by:
+            await db.execute('UPDATE users SET referrals_count = referrals_count + 1 WHERE id = ?', (referred_by,))
+            await db.execute('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)', (referred_by, user_id))
         await db.commit()
 
 async def get_user(user_id):
@@ -114,6 +121,13 @@ async def update_user_limit(user_id, new_limit):
         await db.execute('UPDATE users SET daily_limit = ? WHERE id = ?', (new_limit, user_id))
         await db.commit()
 
+async def update_user_premium(user_id, is_premium, premium_until):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        await db.execute('UPDATE users SET is_premium = ?, premium_until = ? WHERE id = ?', 
+                         (is_premium, premium_until, user_id))
+        await db.commit()
+
+# --- Conversation Functions ---
 async def save_conversation(user_id, user_message, bot_message):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         await db.execute('INSERT INTO conversations (user_id, role, content) VALUES (?, "user", ?)', (user_id, user_message))
@@ -135,6 +149,7 @@ async def clear_conversation_history(user_id):
         await db.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
         await db.commit()
 
+# --- Admin & Stats Functions ---
 async def get_total_users():
     async with aiosqlite.connect(DATABASE_NAME) as db:
         async with db.execute('SELECT COUNT(*) FROM users') as cursor:
@@ -165,6 +180,7 @@ async def reset_all_daily_limits(limit):
         await db.execute('UPDATE users SET daily_limit = ? WHERE is_premium = 0', (limit,))
         await db.commit()
 
+# --- Bonus & Promo Functions ---
 async def claim_daily_bonus(user_id, bonus_amount):
     async with aiosqlite.connect(DATABASE_NAME) as db:
         today = datetime.date.today().isoformat()
@@ -210,3 +226,11 @@ async def redeem_promo(user_id, code):
         await db.execute('UPDATE promo_codes SET uses_left = uses_left - 1 WHERE code = ?', (code,))
         await db.commit()
         return {"premium_days": promo["premium_days"], "extra_requests": promo["extra_requests"]}
+
+# --- Payment Functions ---
+async def add_payment(user_id, amount, period):
+    async with aiosqlite.connect(DATABASE_NAME) as db:
+        cursor = await db.execute('INSERT INTO payments (user_id, amount, status, period) VALUES (?, ?, "pending", ?)', (user_id, amount, period))
+        payment_id = cursor.lastrowid
+        await db.commit()
+        return payment_id

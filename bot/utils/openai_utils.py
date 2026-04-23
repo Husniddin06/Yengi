@@ -63,7 +63,10 @@ async def get_chat_response(user_message: str, history: list = None) -> str:
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
-        messages.extend(history)
+        # Filter history to ensure it's in the correct format for OpenAI
+        for h in history:
+            if isinstance(h, dict) and "role" in h and "content" in h:
+                messages.append(h)
     messages.append({"role": "user", "content": user_message})
 
     try:
@@ -81,7 +84,12 @@ async def get_chat_response(user_message: str, history: list = None) -> str:
 async def generate_image(prompt: str) -> str:
     try:
         if client:
-            response = await client.images.generate(model="dall-e-3", prompt=prompt, n=1)
+            response = await client.images.generate(
+                model="dall-e-3", 
+                prompt=prompt, 
+                n=1,
+                size="1024x1024"
+            )
             return response.data[0].url
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
