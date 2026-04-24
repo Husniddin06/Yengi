@@ -7,29 +7,21 @@ from aiogram.types import (
 
 MENU_LABELS = {
     "ru": {
-        "nano": "🟢 NANO BANANA / AI 🎨",
-        "vision": "📸 Получить промт по фото 📸",
-        "characters": "👽 Персонажи 👽",
-        "tiktok": "📱 TikTok режим",
-        "profile": "👤 Мой профиль",
+        "vision": "📸 Get prompt from photo 📸",
+        "profile": "👤 My Profile",
+        "friends": "👥 Friends / Referral",
         "vip": "🌟 NANO BANANA VIP 🌟",
-        "add_coins": "💸 Докинуть токенов 💸",
-        "hype": "🔥 Хайп промты 🔥",
-        "tasks": "🎁 Задания (Бонус) 🎁",
-        "lang": "🌐 Язык",
-        "help": "🆘 Помощь"
+        "hype": "🔥 Hype Prompts 🔥",
+        "lang": "🌐 Language / Язык",
+        "help": "🆘 Help"
     },
     "en": {
-        "nano": "🟢 NANO BANANA / AI 🎨",
         "vision": "📸 Get prompt from photo 📸",
-        "characters": "👽 Characters 👽",
-        "tiktok": "📱 TikTok mode",
         "profile": "👤 My Profile",
+        "friends": "👥 Friends / Referral",
         "vip": "🌟 NANO BANANA VIP 🌟",
-        "add_coins": "💸 Add Coins 💸",
         "hype": "🔥 Hype Prompts 🔥",
-        "tasks": "🎁 Tasks (Bonus) 🎁",
-        "lang": "🌐 Lang",
+        "lang": "🌐 Language / Язык",
         "help": "🆘 Help"
     },
 }
@@ -40,14 +32,10 @@ def main_reply_menu(lang: str = "en") -> ReplyKeyboardMarkup:
     L = MENU_LABELS[lang]
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=L["nano"])],
             [KeyboardButton(text=L["vision"])],
-            [KeyboardButton(text=L["characters"])],
-            [KeyboardButton(text=L["tiktok"]), KeyboardButton(text=L["profile"])],
+            [KeyboardButton(text=L["profile"]), KeyboardButton(text=L["friends"])],
             [KeyboardButton(text=L["vip"])],
-            [KeyboardButton(text=L["add_coins"])],
             [KeyboardButton(text=L["hype"])],
-            [KeyboardButton(text=L["tasks"])],
             [KeyboardButton(text=L["lang"]), KeyboardButton(text=L["help"])]
         ],
         resize_keyboard=True,

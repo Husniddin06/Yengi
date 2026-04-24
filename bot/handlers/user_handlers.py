@@ -48,6 +48,7 @@ TEXTS = {
         "stars_desc": "Активация Premium и начисление 150 монет.",
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
         "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) для обработки:",
+        "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{(await message.bot.get_me()).username}?start={id}</code>",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Just send a photo, then a prompt!",
@@ -70,6 +71,7 @@ TEXTS = {
         "stars_desc": "Activate Premium and get 150 coins.",
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
         "photo_saved": "✅ Photo saved! Now write a description (prompt) for processing:",
+        "referral_info": "👥 <b>Referral System:</b>\n\nInvite friends and get <b>5 coins</b> for each!\n\n🔗 Your link:\n<code>https://t.me/{bot_username}?start={id}</code>",
     }
 }
 
@@ -81,6 +83,12 @@ async def cmd_start(message: Message):
         args = message.text.split()
         if len(args) > 1 and args[1].isdigit():
             ref_id = int(args[1])
+            # Bonus for referrer
+            await db.update_user_coins(ref_id, 5)
+            try:
+                await message.bot.send_message(ref_id, "👥 Someone joined using your link! You got 5 coins.")
+            except: pass
+            
         await db.add_user(
             user_id=message.from_user.id, 
             username=message.from_user.username, 
@@ -95,34 +103,12 @@ async def cmd_start(message: Message):
     await message.answer(TEXTS[lang]["welcome"], reply_markup=main_reply_menu(lang), parse_mode="HTML")
 
 # --- Reply Keyboard Handlers ---
-@user_router.message(F.text.in_([MENU_LABELS["ru"]["nano"], MENU_LABELS["en"]["nano"]]))
-async def handle_nano(message: Message, state: FSMContext):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    if user['coins'] < 10:
-        await message.answer(TEXTS[lang]["no_coins"])
-        return
-    await message.answer(TEXTS[lang]["nano_prompt"], parse_mode="HTML")
-    await state.set_state(UserStates.waiting_for_nano_prompt)
-
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["vision"], MENU_LABELS["en"]["vision"]]))
 async def handle_vision(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     await message.answer(TEXTS[lang]["vision_info"], parse_mode="HTML")
     await state.set_state(UserStates.waiting_for_vision_image)
-
-@user_router.message(F.text.in_([MENU_LABELS["ru"]["characters"], MENU_LABELS["en"]["characters"]]))
-async def handle_characters(message: Message):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    await message.answer("🎭 Choose your AI Character:", reply_markup=characters_keyboard(lang))
-
-@user_router.message(F.text.in_([MENU_LABELS["ru"]["tiktok"], MENU_LABELS["en"]["tiktok"]]))
-async def handle_tiktok(message: Message):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    await message.answer(TEXTS[lang]["tiktok_msg"], parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["profile"], MENU_LABELS["en"]["profile"]]))
 async def handle_profile(message: Message):
@@ -133,6 +119,14 @@ async def handle_profile(message: Message):
     text = TEXTS[lang]["profile"].format(
         id=user['id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
     )
+    await message.answer(text, parse_mode="HTML")
+
+@user_router.message(F.text.in_([MENU_LABELS["ru"]["friends"], MENU_LABELS["en"]["friends"]]))
+async def handle_friends(message: Message):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    bot_info = await message.bot.get_me()
+    text = TEXTS[lang]["referral_info"].format(bot_username=bot_info.username, id=user['id'])
     await message.answer(text, parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["vip"], MENU_LABELS["en"]["vip"]]))
@@ -147,16 +141,9 @@ async def handle_hype(message: Message):
     lang = user['language_code']
     await message.answer(TEXTS[lang]["hype_prompts"], parse_mode="HTML")
 
-@user_router.message(F.text.in_([MENU_LABELS["ru"]["tasks"], MENU_LABELS["en"]["tasks"]]))
-async def handle_tasks(message: Message):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    tasks = await db.get_active_tasks()
-    await message.answer(TEXTS[lang]["tasks_title"], reply_markup=tasks_keyboard(tasks, lang), parse_mode="HTML")
-
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["lang"], MENU_LABELS["en"]["lang"]]))
 async def handle_lang(message: Message):
-    await message.answer("🌐 Choose language:", reply_markup=lang_keyboard())
+    await message.answer("🌐 Choose language / Выберите язык:", reply_markup=lang_keyboard())
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["help"], MENU_LABELS["en"]["help"]]))
 async def handle_help(message: Message):
@@ -164,7 +151,14 @@ async def handle_help(message: Message):
     lang = user['language_code']
     await message.answer(TEXTS[lang]["help"])
 
-# --- Payment Handlers ---
+# --- Callback Handlers ---
+@user_router.callback_query(F.data.startswith("setlang_"))
+async def set_language(cb: CallbackQuery):
+    lang = cb.data.split("_")[1]
+    await db.update_user_language(cb.from_user.id, lang)
+    await cb.message.answer(TEXTS[lang]["lang_set"], reply_markup=main_reply_menu(lang))
+    await cb.answer()
+
 @user_router.callback_query(F.data == "pay_sbp_request")
 async def pay_sbp_request(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
@@ -233,25 +227,6 @@ async def handle_voice(message: Message):
         await message.answer(TEXTS[lang]["error"])
 
 # --- State Handlers ---
-@user_router.message(UserStates.waiting_for_nano_prompt)
-async def process_nano_generation(message: Message, state: FSMContext):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    if user['coins'] < 10:
-        await message.answer(TEXTS[lang]["no_coins"])
-        await state.clear()
-        return
-    await message.answer(TEXTS[lang]["generating_image"])
-    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
-    try:
-        image_url = await generate_image(message.text, style="banana")
-        await message.answer_photo(photo=image_url, caption=f"🍌 Nano Banana Trend: {message.text[:100]}")
-        await db.update_user_coins(message.from_user.id, -10)
-    except Exception as e:
-        logger.error(f"Error in banana generation: {e}")
-        await message.answer(TEXTS[lang]["error"])
-    await state.clear()
-
 @user_router.message(F.photo)
 async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
@@ -300,18 +275,16 @@ async def handle_chat(message: Message):
     lang = user['language_code']
     char = user.get('current_character', 'default')
     
-    # Foydalanuvchi yuborgan matnni tekshiramiz (tugmalar emasligiga ishonch hosil qilish uchun)
     all_labels = []
     for l in MENU_LABELS.values():
         all_labels.extend(l.values())
     
     if message.text in all_labels:
-        return # Tugmalar bo'lsa, ularning o'z handlerlari ishlaydi
+        return
 
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
     try:
         history = await db.get_chat_history(message.from_user.id)
-        # Faqat matnli javob beramiz, rasm generatsiya qilmaymiz
         response = await get_chat_response(message.text, history, character=char)
         await db.save_conversation(message.from_user.id, message.text, response)
         await message.answer(response, parse_mode="Markdown")

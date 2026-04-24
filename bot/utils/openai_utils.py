@@ -5,6 +5,7 @@ import base64
 import aiohttp
 import re
 import json
+import asyncio
 from openai import AsyncOpenAI
 
 # Log configuration
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN') # Yangi Replicate tokeni
+REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # OpenAI client
@@ -31,17 +32,6 @@ Rules (English):
 - If user writes in Russian, reply in Russian.
 - If user writes in Uzbek, reply in Uzbek.
 - Always give high-quality responses.
-
-Правила (Русский):
-- Отвечай естественно и умно.
-- Давай подробные, полезные ответы.
-- Понимай смысл запроса глубоко.
-- Будь дружелюбным и профессиональным.
-- Если нужно, задавай уточняющие вопросы.
-- Если пользователь пишет по-русски — отвечай по-русски.
-- Если пишет по-английски — отвечай по-английски.
-- Если пишет по-узбекски — отвечай по-узбекски.
-- Всегда отвечай качественно.
 """
 
 CHARACTERS = {
@@ -118,31 +108,20 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
     return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
 
 async def edit_image_with_face(image_path: str, prompt: str) -> str:
-    """Replicate orqali yuzni saqlab qolgan holda rasmga ishlov berish (Face Swap/Identity)"""
+    """Replicate PhotoMaker orqali yuzni 100% saqlab qolgan holda rasmga ishlov berish"""
     try:
         if not REPLICATE_API_TOKEN:
-            logger.warning("Replicate API Token not found, falling back to OpenAI")
             return await _edit_image_openai_fallback(image_path, prompt)
             
-        # Replicate API orqali rasmga ishlov berish (masalan, FaceSwap yoki Image-to-Image modeli)
-        # Bu yerda biz 'tencentarc/photomaker' yoki shunga o'xshash modelni ishlatishimiz mumkin
-        # Hozircha umumiy Replicate API chaqiruvi mantiqi:
-        
-        # 1. Rasmni base64 ga o'tkazamiz yoki URL ga yuklaymiz (Replicate uchun URL kerak)
-        # Eslatma: Haqiqiy Replicate integratsiyasi uchun rasmni vaqtinchalik URL ga yuklash kerak bo'lishi mumkin
-        # Lekin ko'p modellar base64 ni ham qabul qiladi.
-        
         async with aiohttp.ClientSession() as session:
-            # Replicate modelini ishga tushirish (masalan: photomaker)
-            # Bu yerda model nomi va versiyasi bo'lishi kerak
-            model_version = "ddfc2b6a456405587551b8ec330632a01594368d4e1a71905d88a4d87c251f12" # PhotoMaker-V2
+            # PhotoMaker-V2 model
+            model_version = "ddfc2b6a456405587551b8ec330632a01594368d4e1a71905d88a4d87c251f12"
             url = "https://api.replicate.com/v1/predictions"
             headers = {
                 "Authorization": f"Token {REPLICATE_API_TOKEN}",
                 "Content-Type": "application/json"
             }
             
-            # Rasmni base64 ga o'tkazamiz
             with open(image_path, "rb") as f:
                 img_base64 = base64.b64encode(f.read()).decode('utf-8')
                 img_data_url = f"data:image/jpeg;base64,{img_base64}"
@@ -150,11 +129,12 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
             payload = {
                 "version": model_version,
                 "input": {
-                    "prompt": f"A cinematic portrait of a person, {prompt}, high quality, masterpiece",
+                    "prompt": f"A professional high-quality cinematic portrait of the person in the image, {prompt}, 8k, masterpiece, highly detailed, realistic skin texture, maintain facial identity 100%",
                     "input_image": img_data_url,
                     "num_steps": 50,
                     "style_name": "Photographic",
-                    "negative_prompt": "nsfw, low quality, blurry, distorted face"
+                    "adapter_condition_scale": 0.8,
+                    "negative_prompt": "nsfw, low quality, blurry, distorted face, bad anatomy, extra fingers, ugly, deformed"
                 }
             }
             
@@ -163,13 +143,13 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
                     prediction = await resp.json()
                     prediction_id = prediction['id']
                     
-                    # Natijani kutamiz (Polling)
-                    for _ in range(30): # 30 soniya kutamiz
+                    for _ in range(45): # Max 90 seconds
                         async with session.get(f"{url}/{prediction_id}", headers=headers) as check_resp:
                             status_data = await check_resp.json()
                             if status_data['status'] == 'succeeded':
                                 return status_data['output'][0]
                             elif status_data['status'] == 'failed':
+                                logger.error(f"Replicate Prediction Failed: {status_data.get('error')}")
                                 break
                         await asyncio.sleep(2)
         
@@ -186,7 +166,7 @@ async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
             response = await client.images.edit(
                 model="dall-e-2",
                 image=img,
-                prompt=f"Keep face identity similar. High realism, cinematic quality. {prompt}",
+                prompt=f"Maintain 100% identical facial structure of the person in the image. {prompt}, cinematic, realistic.",
                 n=1,
                 size="1024x1024"
             )
@@ -197,7 +177,7 @@ async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
-        if not client: return "📸 Image received! (Vision requires OpenAI API Key)."
+        if not client: return "📸 Image received!"
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = await client.chat.completions.create(
             model=CHAT_MODEL,
@@ -217,7 +197,7 @@ async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
 
 async def transcribe_audio(file_path: str) -> str:
     try:
-        if not client: return "🎙 Audio received! (Transcription requires OpenAI API Key)."
+        if not client: return "🎙 Audio received!"
         with open(file_path, "rb") as f:
             ts = await client.audio.transcriptions.create(model="whisper-1", file=f)
             return ts.text
