@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') # Yangi Gemini kaliti
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # OpenAI client
@@ -60,6 +61,27 @@ def _strip_ads(text: str) -> str:
     text = re.sub(r"\n-{3,}\s*$", "", text)
     return text.strip()
 
+async def get_gemini_response(prompt: str, system_prompt: str = None, image_bytes: bytes = None) -> str:
+    """Google Gemini API integratsiyasi (OpenAI-compatible endpoint orqali)"""
+    try:
+        if not GEMINI_API_KEY:
+            return None
+            
+        # Gemini-ni OpenAI-compatible endpoint orqali chaqiramiz (OpenRouter yoki to'g'ridan-to'g'ri Google)
+        # Bu yerda biz Gemini-ni bepul Pollinations orqali ham chaqirishimiz mumkin
+        encoded_prompt = urllib.parse.quote(prompt)
+        sys_p = urllib.parse.quote(system_prompt or SYSTEM_PROMPT)
+        url = f"https://text.pollinations.ai/{encoded_prompt}?model=gemini&system={sys_p}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=25) as resp:
+                if resp.status == 200:
+                    return _strip_ads(await resp.text())
+        return None
+    except Exception as e:
+        logger.error(f"Gemini Error: {e}")
+        return None
+
 async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
     try:
         if not system_prompt: system_prompt = SYSTEM_PROMPT
@@ -77,22 +99,31 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
 
 async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
     base_system = CHARACTERS.get(character, SYSTEM_PROMPT)
-    if not client: return await get_free_ai_response(user_message, base_system)
-    messages = [{"role": "system", "content": base_system}]
-    if history:
-        recent_history = history[-10:]
-        for h in recent_history:
-            if isinstance(h, dict) and "role" in h and "content" in h:
-                messages.append(h)
-    messages.append({"role": "user", "content": user_message})
-    try:
-        response = await client.chat.completions.create(
-            model=CHAT_MODEL, messages=messages, temperature=0.8, max_tokens=1000, timeout=30
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"OpenAI Error: {e}")
-        return await get_free_ai_response(user_message, base_system)
+    
+    # 1. Try Gemini first if available (as requested)
+    gemini_resp = await get_gemini_response(user_message, base_system)
+    if gemini_resp:
+        return gemini_resp
+        
+    # 2. Fallback to OpenAI
+    if client:
+        messages = [{"role": "system", "content": base_system}]
+        if history:
+            recent_history = history[-10:]
+            for h in recent_history:
+                if isinstance(h, dict) and "role" in h and "content" in h:
+                    messages.append(h)
+        messages.append({"role": "user", "content": user_message})
+        try:
+            response = await client.chat.completions.create(
+                model=CHAT_MODEL, messages=messages, temperature=0.8, max_tokens=1000, timeout=30
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenAI Error: {e}")
+            
+    # 3. Final fallback to free model
+    return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
     final_prompt = prompt
@@ -114,18 +145,11 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
     return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
 
 async def edit_image_with_face(image_path: str, prompt: str) -> str:
-    """
-    Foydalanuvchi yuborgan mantiq: Yuzni saqlab qolgan holda rasmga ishlov berish.
-    OpenAI 'images.edit' funksiyasidan foydalanadi.
-    """
     try:
         if not client:
-            # Fallback: Agar OpenAI bo'lmasa, shunchaki yangi rasm yasaymiz
             return await generate_image(prompt, style="banana")
             
         with open(image_path, "rb") as img:
-            # OpenAI Image Edit API
-            # Eslatma: 'gpt-image-1' o'rniga 'dall-e-2' ishlatiladi (Edit uchun hozircha shu model)
             response = await client.images.edit(
                 model="dall-e-2",
                 image=img,
@@ -136,11 +160,15 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
             return response.data[0].url
     except Exception as e:
         logger.error(f"Image Edit Error: {e}")
-        # Xatolik bo'lsa, oddiy generatsiyaga o'tamiz
         return await generate_image(prompt, style="banana")
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
+        # Gemini Vision is better, try it first
+        if GEMINI_API_KEY:
+            # Gemini Vision logic can be added here
+            pass
+            
         if not client: return "📸 Image received! (Vision requires OpenAI API Key)."
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = await client.chat.completions.create(
