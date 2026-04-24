@@ -28,7 +28,7 @@ class UserStates(StatesGroup):
 
 TEXTS = {
     "ru": {
-        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n🎭 <b>Face Identity</b>: Пришли фото, а затем описание!",
+        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n🎭 <b>Face Identity</b>: Просто пришли фото, а затем описание!",
         "lang_set": "Язык изменен на Русский 🇷🇺",
         "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}\n🎭 Персонаж: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
@@ -50,7 +50,7 @@ TEXTS = {
         "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) для обработки:",
     },
     "en": {
-        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Send photo, then a prompt!",
+        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Just send a photo, then a prompt!",
         "lang_set": "Language set to English 🇬🇧",
         "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}\n🎭 Character: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
@@ -252,7 +252,8 @@ async def process_nano_generation(message: Message, state: FSMContext):
         await message.answer(TEXTS[lang]["error"])
     await state.clear()
 
-@user_router.message(UserStates.waiting_for_vision_image, F.photo)
+# Foydalanuvchi yuborgan mantiq: Rasm yuborilganda avtomatik holatga o'tish
+@user_router.message(F.photo)
 async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
     user = await db.get_user(message.from_user.id)
@@ -265,6 +266,7 @@ async def process_vision_image(message: Message, state: FSMContext):
     
     await state.update_data(face_photo_path=file_path)
     await message.answer(TEXTS[lang]["photo_saved"])
+    # Avtomatik ravishda prompt kutish holatiga o'tamiz
     await state.set_state(UserStates.waiting_for_face_swap_prompt)
 
 @user_router.message(UserStates.waiting_for_face_swap_prompt)
