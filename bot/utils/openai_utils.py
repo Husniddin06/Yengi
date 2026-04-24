@@ -115,10 +115,7 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
             
         async with aiohttp.ClientSession() as session:
             # InstantID model (fofr/instant-id)
-            model_version = "ddfc2b6a456405587551b8ec330632a01594368d4e1a71905d88a4d87c251f12" # PhotoMaker V2
-            # Foydalanuvchi InstantID so'ragani uchun fofr/instant-id modelini ishlatamiz
-            instant_id_version = "fofr/instant-id"
-            
+            model_version = "ef70dcee6604870795493069004084394073380f089600984869766440263692"
             url = "https://api.replicate.com/v1/predictions"
             headers = {
                 "Authorization": f"Token {REPLICATE_API_TOKEN}",
@@ -129,9 +126,8 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
                 img_base64 = base64.b64encode(f.read()).decode('utf-8')
                 img_data_url = f"data:image/jpeg;base64,{img_base64}"
 
-            # InstantID mantiqi
             payload = {
-                "version": "ef70dcee6604870795493069004084394073380f089600984869766440263692", # fofr/instant-id latest
+                "version": model_version,
                 "input": {
                     "image": img_data_url,
                     "prompt": f"{prompt}, ultra realistic, cinematic lighting, masterpiece, preserve same identity, 8k, highly detailed",
@@ -152,7 +148,6 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
                         async with session.get(f"{url}/{prediction_id}", headers=headers) as check_resp:
                             status_data = await check_resp.json()
                             if status_data['status'] == 'succeeded':
-                                # InstantID output odatda ro'yxat bo'ladi
                                 output = status_data['output']
                                 return output[0] if isinstance(output, list) else output
                             elif status_data['status'] == 'failed':
