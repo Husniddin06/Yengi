@@ -126,15 +126,18 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
                 img_base64 = base64.b64encode(f.read()).decode('utf-8')
                 img_data_url = f"data:image/jpeg;base64,{img_base64}"
 
+            # PhotoMaker V2 uchun maxsus 'img' trigger word ishlatish kerak
+            # adapter_condition_scale ni 0.8 dan 1.0 gacha ko'tarish yuz o'xshashligini oshiradi
             payload = {
                 "version": model_version,
                 "input": {
-                    "prompt": f"A professional high-quality cinematic portrait of the person in the image, {prompt}, 8k, masterpiece, highly detailed, realistic skin texture, maintain facial identity 100%",
+                    "prompt": f"A professional high-quality cinematic portrait of the person img, {prompt}, 8k, masterpiece, highly detailed, realistic skin texture, maintain facial identity 100%",
                     "input_image": img_data_url,
                     "num_steps": 50,
                     "style_name": "Photographic",
-                    "adapter_condition_scale": 0.8,
-                    "negative_prompt": "nsfw, low quality, blurry, distorted face, bad anatomy, extra fingers, ugly, deformed"
+                    "adapter_condition_scale": 1.0,
+                    "style_strength_ratio": 20,
+                    "negative_prompt": "nsfw, low quality, blurry, distorted face, bad anatomy, extra fingers, ugly, deformed, different face, asian if not asian, western if not western"
                 }
             }
             

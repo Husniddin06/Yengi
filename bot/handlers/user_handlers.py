@@ -48,7 +48,7 @@ TEXTS = {
         "stars_desc": "Активация Premium и начисление 150 монет.",
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
         "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) для обработки:",
-        "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{(await message.bot.get_me()).username}?start={id}</code>",
+        "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{bot_username}?start={id}</code>",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Just send a photo, then a prompt!",
@@ -275,11 +275,30 @@ async def handle_chat(message: Message):
     lang = user['language_code']
     char = user.get('current_character', 'default')
     
+    # Check if text is a menu button
     all_labels = []
     for l in MENU_LABELS.values():
         all_labels.extend(l.values())
     
     if message.text in all_labels:
+        # This should be handled by specific handlers above
+        # If it reached here, it means the handler didn't catch it
+        # Let's manually trigger the correct handler based on the label
+        for l_lang, labels in MENU_LABELS.items():
+            if message.text == labels["vision"]:
+                return await handle_vision(message, None) # FSMContext might be needed
+            if message.text == labels["profile"]:
+                return await handle_profile(message)
+            if message.text == labels["friends"]:
+                return await handle_friends(message)
+            if message.text == labels["vip"]:
+                return await handle_vip(message)
+            if message.text == labels["hype"]:
+                return await handle_hype(message)
+            if message.text == labels["lang"]:
+                return await handle_lang(message)
+            if message.text == labels["help"]:
+                return await handle_help(message)
         return
 
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
