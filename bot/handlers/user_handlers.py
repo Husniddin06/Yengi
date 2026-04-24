@@ -28,13 +28,13 @@ class UserStates(StatesGroup):
 
 TEXTS = {
     "ru": {
-        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n🎭 <b>Face Identity</b>: Просто пришли фото, а затем описание!",
+        "welcome": "👋 Привет! Я твой <b>MAX AI</b> ассистент.\n\n🚀 <b>Что я умею:</b>\n— Умный поиск в интернете (новости, цены).\n👁 Анализ фото и создание промтов.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Голосовые сообщения в текст.\n🎭 <b>Face Identity (InstantID)</b>: Просто пришли фото, а затем описание!",
         "lang_set": "Язык изменен на Русский 🇷🇺",
         "profile": "👤 <b>Мой профиль:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Баланс: {coins} монет\n💎 Premium: {premium}\n👥 Друзей: {refs}\n🎭 Персонаж: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 монет сразу\n- Доступ к GPT-4o\n- Безлимитные запросы\nВыберите способ оплаты:",
         "help": "🆘 Помощь:\n/start - Перезапуск\nЧat с ботом БЕСПЛАТНЫЙ.\nNano Banana - 10 монет за фото.",
         "nano_prompt": "🎨 <b>Nano Banana Trend:</b>\nОтправьте описание для создания вирального бананового арта! (Например: 'кот-космонавт')",
-        "generating_image": "🎨 Генерирую изображение, пожалуйста подождите...",
+        "generating_image": "🎨 Генерирую изображение (InstantID), пожалуйста подождите 20-40 сек...",
         "error": "❌ Произошла ошибка. Попробуйте позже.",
         "no_coins": "❌ У вас недостаточно монет (нужно 10). Выполните задания или купите Premium.",
         "sbp_request_sent": "💳 Запрос на оплату через СБП отправлен админу. После перевода 75₽ на карту, админ подтвердит платеж и вам придет 150 монет.",
@@ -42,22 +42,22 @@ TEXTS = {
         "tiktok_msg": "📱 <b>TikTok Режим:</b>\nДля прослушивания и скачивания музыки из TikTok используйте наш партнерский бот: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Хайп Промты для AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nСкопируйте и используйте в Nano Banana!",
         "char_set": "🎭 Персонаж изменен на: {name}",
-        "vision_info": "📸 <b>Face Identity / Prompt:</b>\n1. Отправьте фото.\n2. Затем напишите описание (например: 'в стиле киберпанк').\nЯ создам арт, сохранив ваше лицо!",
+        "vision_info": "📸 <b>Face Identity (InstantID):</b>\n1. Отправьте фото.\n2. Затем напишите описание (например: 'мафиози в Дубае').\nЯ создам арт, сохранив ваше лицо на 100%!",
         "voice_processing": "🎙 Обрабатываю голосовое сообщение...",
         "stars_title": "Premium + 150 монет",
         "stars_desc": "Активация Premium и начисление 150 монет.",
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
-        "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) для обработки:",
+        "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) или используйте /make [промт]:",
         "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{bot_username}?start={id}</code>",
     },
     "en": {
-        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity</b>: Just send a photo, then a prompt!",
+        "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity (InstantID)</b>: Just send a photo, then a prompt!",
         "lang_set": "Language set to English 🇬🇧",
         "profile": "👤 <b>My Profile:</b>\n\n🆔 ID: <code>{id}</code>\n🪙 Balance: {coins} coins\n💎 Premium: {premium}\n👥 Friends: {refs}\n🎭 Character: {char}",
         "premium_info": "💎 Premium (75₽ / 50⭐️):\n- 150 coins instantly\n- GPT-4o access\n- Unlimited requests\nChoose payment method:",
         "help": "🆘 Help:\n/start - Restart\nChatting is FREE.\nNano Banana - 10 coins per photo.",
         "nano_prompt": "🎨 <b>Nano Banana Trend:</b>\nSend a description to create viral banana art! (e.g., 'astronaut cat')",
-        "generating_image": "🎨 Generating image, please wait...",
+        "generating_image": "🎨 Generating image (InstantID), please wait 20-40 sec...",
         "error": "❌ An error occurred. Please try again later.",
         "no_coins": "❌ You don't have enough coins (need 10). Complete tasks or buy Premium.",
         "sbp_request_sent": "💳 SBP payment request sent to admin. After transferring 75₽, admin will confirm and you will receive 150 coins.",
@@ -65,12 +65,12 @@ TEXTS = {
         "tiktok_msg": "📱 <b>TikTok Mode:</b>\nTo listen and download music from TikTok, use our partner bot: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Hype Prompts for AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nCopy and use in Nano Banana!",
         "char_set": "🎭 Character changed to: {name}",
-        "vision_info": "📸 <b>Face Identity / Prompt:</b>\n1. Send a photo.\n2. Then write a description (e.g., 'cyberpunk style').\nI will create art while keeping your face!",
+        "vision_info": "📸 <b>Face Identity (InstantID):</b>\n1. Send a photo.\n2. Then write a description (e.g., 'mafia boss in Dubai').\nI will create art while keeping your face 100%!",
         "voice_processing": "🎙 Processing voice message...",
         "stars_title": "Premium + 150 Coins",
         "stars_desc": "Activate Premium and get 150 coins.",
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
-        "photo_saved": "✅ Photo saved! Now write a description (prompt) for processing:",
+        "photo_saved": "✅ Photo saved! Now write a description (prompt) or use /make [prompt]:",
         "referral_info": "👥 <b>Referral System:</b>\n\nInvite friends and get <b>5 coins</b> for each!\n\n🔗 Your link:\n<code>https://t.me/{bot_username}?start={id}</code>",
     }
 }
@@ -241,35 +241,60 @@ async def process_vision_image(message: Message, state: FSMContext):
     await message.answer(TEXTS[lang]["photo_saved"])
     await state.set_state(UserStates.waiting_for_face_swap_prompt)
 
-@user_router.message(UserStates.waiting_for_face_swap_prompt)
-async def process_face_swap(message: Message, state: FSMContext):
+@user_router.message(Command("make"))
+async def handle_make_command(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    if user['coins'] < 10:
-        await message.answer(TEXTS[lang]["no_coins"])
-        await state.clear()
+    prompt = message.text.replace("/make", "").strip()
+    
+    if not prompt:
+        await message.answer("❌ Write prompt after /make")
         return
         
     data = await state.get_data()
     photo_path = data.get("face_photo_path")
     
+    if not photo_path or not os.path.exists(photo_path):
+        await message.answer("❌ First send a photo.")
+        return
+        
+    await process_face_swap_logic(message, state, photo_path, prompt)
+
+@user_router.message(UserStates.waiting_for_face_swap_prompt)
+async def process_face_swap_input(message: Message, state: FSMContext):
+    if message.text and message.text.startswith("/"): return # Let other commands handle it
+    
+    data = await state.get_data()
+    photo_path = data.get("face_photo_path")
+    await process_face_swap_logic(message, state, photo_path, message.text)
+
+async def process_face_swap_logic(message: Message, state: FSMContext, photo_path: str, prompt: str):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    
+    if user['coins'] < 10:
+        await message.answer(TEXTS[lang]["no_coins"])
+        await state.clear()
+        return
+        
     await message.answer(TEXTS[lang]["generating_image"])
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
     
     try:
-        image_url = await edit_image_with_face(photo_path, message.text)
-        await message.answer_photo(photo=image_url, caption=f"🎭 Face Identity: {message.text[:100]}")
+        image_url = await edit_image_with_face(photo_path, prompt)
+        await message.answer_photo(photo=image_url, caption=f"🎭 InstantID: {prompt[:100]}")
         await db.update_user_coins(message.from_user.id, -10)
     except Exception as e:
         logger.error(f"Error in face swap: {e}")
         await message.answer(TEXTS[lang]["error"])
     finally:
-        if photo_path and os.path.exists(photo_path):
-            os.remove(photo_path)
-    await state.clear()
+        # Keep photo for further /make commands if user wants
+        pass
+    # We don't clear state here to allow multiple /make commands with same photo
+    # But we can clear it if user sends another photo or starts chat
 
 @user_router.message(F.text)
-async def handle_chat(message: Message):
+async def handle_chat(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     if not user: return
     lang = user['language_code']
@@ -281,12 +306,9 @@ async def handle_chat(message: Message):
         all_labels.extend(l.values())
     
     if message.text in all_labels:
-        # This should be handled by specific handlers above
-        # If it reached here, it means the handler didn't catch it
-        # Let's manually trigger the correct handler based on the label
         for l_lang, labels in MENU_LABELS.items():
             if message.text == labels["vision"]:
-                return await handle_vision(message, None) # FSMContext might be needed
+                return await handle_vision(message, state)
             if message.text == labels["profile"]:
                 return await handle_profile(message)
             if message.text == labels["friends"]:
