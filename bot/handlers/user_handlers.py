@@ -252,21 +252,18 @@ async def process_nano_generation(message: Message, state: FSMContext):
         await message.answer(TEXTS[lang]["error"])
     await state.clear()
 
-# Foydalanuvchi yuborgan mantiq: Rasm yuborilganda avtomatik holatga o'tish
 @user_router.message(F.photo)
 async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     
-    # Save photo for Face Identity
     file = await message.bot.get_file(photo.file_id)
     file_path = f"face_{message.from_user.id}.jpg"
     await message.bot.download_file(file.file_path, file_path)
     
     await state.update_data(face_photo_path=file_path)
     await message.answer(TEXTS[lang]["photo_saved"])
-    # Avtomatik ravishda prompt kutish holatiga o'tamiz
     await state.set_state(UserStates.waiting_for_face_swap_prompt)
 
 @user_router.message(UserStates.waiting_for_face_swap_prompt)
@@ -302,9 +299,19 @@ async def handle_chat(message: Message):
     if not user: return
     lang = user['language_code']
     char = user.get('current_character', 'default')
+    
+    # Foydalanuvchi yuborgan matnni tekshiramiz (tugmalar emasligiga ishonch hosil qilish uchun)
+    all_labels = []
+    for l in MENU_LABELS.values():
+        all_labels.extend(l.values())
+    
+    if message.text in all_labels:
+        return # Tugmalar bo'lsa, ularning o'z handlerlari ishlaydi
+
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
     try:
         history = await db.get_chat_history(message.from_user.id)
+        # Faqat matnli javob beramiz, rasm generatsiya qilmaymiz
         response = await get_chat_response(message.text, history, character=char)
         await db.save_conversation(message.from_user.id, message.text, response)
         await message.answer(response, parse_mode="Markdown")
