@@ -4,6 +4,7 @@ import urllib.parse
 import base64
 import aiohttp
 import re
+import json
 from openai import AsyncOpenAI
 
 # Log configuration
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') # Yangi Gemini kaliti
+REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN') # Yangi Replicate tokeni
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # OpenAI client
@@ -61,27 +62,6 @@ def _strip_ads(text: str) -> str:
     text = re.sub(r"\n-{3,}\s*$", "", text)
     return text.strip()
 
-async def get_gemini_response(prompt: str, system_prompt: str = None, image_bytes: bytes = None) -> str:
-    """Google Gemini API integratsiyasi (OpenAI-compatible endpoint orqali)"""
-    try:
-        if not GEMINI_API_KEY:
-            return None
-            
-        # Gemini-ni OpenAI-compatible endpoint orqali chaqiramiz (OpenRouter yoki to'g'ridan-to'g'ri Google)
-        # Bu yerda biz Gemini-ni bepul Pollinations orqali ham chaqirishimiz mumkin
-        encoded_prompt = urllib.parse.quote(prompt)
-        sys_p = urllib.parse.quote(system_prompt or SYSTEM_PROMPT)
-        url = f"https://text.pollinations.ai/{encoded_prompt}?model=gemini&system={sys_p}"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=25) as resp:
-                if resp.status == 200:
-                    return _strip_ads(await resp.text())
-        return None
-    except Exception as e:
-        logger.error(f"Gemini Error: {e}")
-        return None
-
 async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
     try:
         if not system_prompt: system_prompt = SYSTEM_PROMPT
@@ -100,12 +80,6 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
 async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
     base_system = CHARACTERS.get(character, SYSTEM_PROMPT)
     
-    # 1. Try Gemini first if available (as requested)
-    gemini_resp = await get_gemini_response(user_message, base_system)
-    if gemini_resp:
-        return gemini_resp
-        
-    # 2. Fallback to OpenAI
     if client:
         messages = [{"role": "system", "content": base_system}]
         if history:
@@ -122,7 +96,6 @@ async def get_chat_response(user_message: str, history: list = None, character: 
         except Exception as e:
             logger.error(f"OpenAI Error: {e}")
             
-    # 3. Final fallback to free model
     return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
@@ -131,7 +104,7 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
         final_prompt = (
             f"Ultra-realistic, cinematic, high-detail 3D render of {prompt} in a viral 'Nano Banana' style. "
             "The subject should be creatively integrated with a banana theme, funny, cute, or surreal. "
-            "Vibrant colors, studio lighting, 8k resolution, trending on social media, Gemini AI style."
+            "Vibrant colors, studio lighting, 8k resolution, trending on social media."
         )
     try:
         if client:
@@ -145,10 +118,70 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
     return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
 
 async def edit_image_with_face(image_path: str, prompt: str) -> str:
+    """Replicate orqali yuzni saqlab qolgan holda rasmga ishlov berish (Face Swap/Identity)"""
+    try:
+        if not REPLICATE_API_TOKEN:
+            logger.warning("Replicate API Token not found, falling back to OpenAI")
+            return await _edit_image_openai_fallback(image_path, prompt)
+            
+        # Replicate API orqali rasmga ishlov berish (masalan, FaceSwap yoki Image-to-Image modeli)
+        # Bu yerda biz 'tencentarc/photomaker' yoki shunga o'xshash modelni ishlatishimiz mumkin
+        # Hozircha umumiy Replicate API chaqiruvi mantiqi:
+        
+        # 1. Rasmni base64 ga o'tkazamiz yoki URL ga yuklaymiz (Replicate uchun URL kerak)
+        # Eslatma: Haqiqiy Replicate integratsiyasi uchun rasmni vaqtinchalik URL ga yuklash kerak bo'lishi mumkin
+        # Lekin ko'p modellar base64 ni ham qabul qiladi.
+        
+        async with aiohttp.ClientSession() as session:
+            # Replicate modelini ishga tushirish (masalan: photomaker)
+            # Bu yerda model nomi va versiyasi bo'lishi kerak
+            model_version = "ddfc2b6a456405587551b8ec330632a01594368d4e1a71905d88a4d87c251f12" # PhotoMaker-V2
+            url = "https://api.replicate.com/v1/predictions"
+            headers = {
+                "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            
+            # Rasmni base64 ga o'tkazamiz
+            with open(image_path, "rb") as f:
+                img_base64 = base64.b64encode(f.read()).decode('utf-8')
+                img_data_url = f"data:image/jpeg;base64,{img_base64}"
+
+            payload = {
+                "version": model_version,
+                "input": {
+                    "prompt": f"A cinematic portrait of a person, {prompt}, high quality, masterpiece",
+                    "input_image": img_data_url,
+                    "num_steps": 50,
+                    "style_name": "Photographic",
+                    "negative_prompt": "nsfw, low quality, blurry, distorted face"
+                }
+            }
+            
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status == 201:
+                    prediction = await resp.json()
+                    prediction_id = prediction['id']
+                    
+                    # Natijani kutamiz (Polling)
+                    for _ in range(30): # 30 soniya kutamiz
+                        async with session.get(f"{url}/{prediction_id}", headers=headers) as check_resp:
+                            status_data = await check_resp.json()
+                            if status_data['status'] == 'succeeded':
+                                return status_data['output'][0]
+                            elif status_data['status'] == 'failed':
+                                break
+                        await asyncio.sleep(2)
+        
+        return await _edit_image_openai_fallback(image_path, prompt)
+    except Exception as e:
+        logger.error(f"Replicate Error: {e}")
+        return await _edit_image_openai_fallback(image_path, prompt)
+
+async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
     try:
         if not client:
             return await generate_image(prompt, style="banana")
-            
         with open(image_path, "rb") as img:
             response = await client.images.edit(
                 model="dall-e-2",
@@ -159,16 +192,11 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
             )
             return response.data[0].url
     except Exception as e:
-        logger.error(f"Image Edit Error: {e}")
+        logger.error(f"OpenAI Edit Fallback Error: {e}")
         return await generate_image(prompt, style="banana")
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
-        # Gemini Vision is better, try it first
-        if GEMINI_API_KEY:
-            # Gemini Vision logic can be added here
-            pass
-            
         if not client: return "📸 Image received! (Vision requires OpenAI API Key)."
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         response = await client.chat.completions.create(
