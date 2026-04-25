@@ -1,7 +1,7 @@
 import os
+import base64
 import logging
 import aiohttp
-import replicate
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -70,62 +70,155 @@ async def get_chat_response(message_text, history, character="default"):
     return "⚠️ System is busy. Please check API keys in Railway."
 
 async def generate_image(prompt):
-    """Generate image using DALL-E 3"""
-    if not OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY is missing for DALL-E 3")
+    """Generate image from text prompt via OpenRouter (Gemini 2.5 Flash Image / Nano Banana).
+    Returns raw image bytes on success, or None on failure.
+    """
+    if not OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY is missing for image generation")
         return None
-        
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "model": "google/gemini-2.5-flash-image",
+        "modalities": ["image", "text"],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Generate a high-quality, viral, ultra-realistic image. "
+                            "Subject: " + (prompt or "")
+                        ),
+                    }
+                ],
+            }
+        ],
+    }
     try:
-        response = client.images.generate(
-            model="dall-e-3",
-            prompt=f"Viral, funny, ultra-realistic banana style, Gemini trend: {prompt}",
-            size="1024x1024",
-            quality="hd",
-            n=1,
-        )
-        return response.data[0].url
+        timeout = aiohttp.ClientTimeout(total=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data,
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        f"OpenRouter image gen error {resp.status}: {await resp.text()}"
+                    )
+                    return None
+                result = await resp.json()
+                msg = result.get("choices", [{}])[0].get("message", {}) or {}
+                images = msg.get("images") or []
+                if images:
+                    url = images[0].get("image_url", {}).get("url", "")
+                    if url.startswith("data:"):
+                        try:
+                            return base64.b64decode(url.split(",", 1)[1])
+                        except Exception as e:
+                            logger.error(f"Failed to decode image data URL: {e}")
+                            return None
+                    if url:
+                        return url
+                logger.error(f"OpenRouter returned no images: {result}")
+                return None
     except Exception as e:
-        logger.error(f"DALL-E Error: {e}")
+        logger.error(f"OpenRouter image gen exception: {e}")
         return None
 
-async def edit_image_with_face(image_path, prompt):
-    """Face Identity using Replicate InstantID"""
-    if not REPLICATE_API_TOKEN:
-        logger.error("REPLICATE_API_TOKEN is missing")
-        return await generate_image(prompt)
-        
-    replicate_client = replicate.Client(auth=REPLICATE_API_TOKEN)
-    
-    try:
-        output = replicate_client.run(
-            "fofr/instant-id:6af8543fbf38519100e338e5219b118f07f051ae9997ca21ff6d9d9ec9dae9ad",
-            input={
-                "image": open(image_path, "rb"),
-                "prompt": f"High-quality cinematic portrait, {prompt}",
-                "negative_prompt": "ugly, deformed, noisy, blurry, low quality",
-                "ip_adapter_scale": 0.8,
-                "controlnet_conditioning_scale": 0.8,
-                "guidance_scale": 7.5,
-                "num_inference_steps": 30,
-                "enhance_face_region": True
+async def edit_image_with_face(image_paths, prompt):
+    """Image(s) + prompt -> image via OpenRouter (Gemini 2.5 Flash Image / Nano Banana).
+    `image_paths` may be a single path string or a list of paths (up to 6). Multiple
+    reference photos help the model lock in the person's identity / face.
+    Returns raw image bytes on success, or None on failure.
+    """
+    if not OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY is missing for image editing")
+        return None
+    if isinstance(image_paths, (str, bytes)):
+        image_paths = [image_paths]
+    image_paths = [p for p in (image_paths or []) if p]
+    if not image_paths:
+        logger.error("No input images provided")
+        return None
+    image_paths = image_paths[:6]
+    image_parts = []
+    for p in image_paths:
+        try:
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+            image_parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        except Exception as e:
+            logger.error(f"Failed to read input image {p}: {e}")
+    if not image_parts:
+        return None
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    intro = (
+        f"You are given {len(image_parts)} reference photo(s) of the same person. "
+        "Use ALL of them together to lock in the person's identity, face shape, "
+        "and features as accurately as possible. Generate a NEW image where the "
+        "person's face stays clearly recognizable. Apply this transformation: "
+        + (prompt or "")
+    )
+    data = {
+        "model": "google/gemini-2.5-flash-image",
+        "modalities": ["image", "text"],
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": intro}] + image_parts,
             }
-        )
-        if isinstance(output, list) and len(output) > 0:
-            return output[0]
-        return output
+        ],
+    }
+    try:
+        timeout = aiohttp.ClientTimeout(total=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data,
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        f"OpenRouter image edit error {resp.status}: {await resp.text()}"
+                    )
+                    return None
+                result = await resp.json()
+                msg = result.get("choices", [{}])[0].get("message", {}) or {}
+                images = msg.get("images") or []
+                if images:
+                    url = images[0].get("image_url", {}).get("url", "")
+                    if url.startswith("data:"):
+                        try:
+                            return base64.b64decode(url.split(",", 1)[1])
+                        except Exception as e:
+                            logger.error(f"Failed to decode image data URL: {e}")
+                            return None
+                    if url:
+                        return url
+                logger.error(f"OpenRouter returned no images: {result}")
+                return None
     except Exception as e:
-        logger.error(f"Replicate Error: {e}")
-        return await generate_image(prompt)
+        logger.error(f"OpenRouter image edit exception: {e}")
+        return None
 
 async def analyze_image_and_chat(image_path, prompt):
     """Analyze image using GPT-4o Vision via OpenRouter"""
     api_key = OPENROUTER_API_KEY or OPENAI_API_KEY
     if not api_key: return "❌ API key missing."
-    
     import base64
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-
     try:
         async with aiohttp.ClientSession() as session:
             headers = {
@@ -158,7 +251,7 @@ async def transcribe_audio(audio_path):
     try:
         with open(audio_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
+                model="whisper-1",
                 file=audio_file
             )
             return transcript.text

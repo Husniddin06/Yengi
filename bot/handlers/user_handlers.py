@@ -1,16 +1,14 @@
 import os
 import logging
-import aiohttp
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, ContentType
-from aiogram.filters import CommandStart, Command
-from aiogram.enums import ChatAction
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, ContentType, BufferedInputFile
+from aiogram.filters import Command, StateFilter, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from datetime import datetime, timedelta
+from aiogram.enums import ChatAction
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, generate_image, analyze_image_and_chat, transcribe_audio, edit_image_with_face
+from bot.utils.openai_utils import get_chat_response, generate_image, edit_image_with_face, analyze_image_and_chat, transcribe_audio
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
     tasks_keyboard, admin_payment_confirm_keyboard, characters_keyboard,
@@ -21,10 +19,12 @@ from bot.config import ADMIN_ID
 logger = logging.getLogger(__name__)
 user_router = Router()
 
+MAX_FACE_PHOTOS = 6
+
 class UserStates(StatesGroup):
-    waiting_for_nano_prompt = State()
-    waiting_for_vision_image = State()
+    waiting_for_prompt = State()
     waiting_for_face_swap_prompt = State()
+    waiting_for_payment_confirm = State()
 
 TEXTS = {
     "ru": {
@@ -85,7 +85,6 @@ async def cmd_start(message: Message):
         args = message.text.split()
         if len(args) > 1 and args[1].isdigit():
             ref_id = int(args[1])
-            # Bonus for referrer
             await db.update_user_coins(ref_id, 5)
             try:
                 await message.bot.send_message(ref_id, "👥 Someone joined using your link! You got 5 coins.")
@@ -104,13 +103,12 @@ async def cmd_start(message: Message):
     lang = user['language_code'] if user and user['language_code'] else "en"
     await message.answer(TEXTS[lang]["welcome"], reply_markup=main_reply_menu(lang), parse_mode="HTML")
 
-# --- Reply Keyboard Handlers ---
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["vision"], MENU_LABELS["en"]["vision"]]))
 async def handle_vision(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     await message.answer(TEXTS[lang]["vision_info"], parse_mode="HTML")
-    await state.set_state(UserStates.waiting_for_vision_image)
+    await state.set_state(UserStates.waiting_for_face_swap_prompt)
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["profile"], MENU_LABELS["en"]["profile"]]))
 async def handle_profile(message: Message):
@@ -119,7 +117,7 @@ async def handle_profile(message: Message):
     premium_status = "✅" if user['is_premium'] else "❌"
     char_name = user.get('current_character', 'default').replace('_', ' ').title()
     text = TEXTS[lang]["profile"].format(
-        id=user['id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
+        id=user['user_id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
     )
     await message.answer(text, parse_mode="HTML")
 
@@ -128,7 +126,7 @@ async def handle_friends(message: Message):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     bot_info = await message.bot.get_me()
-    text = TEXTS[lang]["referral_info"].format(bot_username=bot_info.username, id=user['id'])
+    text = TEXTS[lang]["referral_info"].format(bot_username=bot_info.username, id=user['user_id'])
     await message.answer(text, parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["vip"], MENU_LABELS["en"]["vip"]]))
@@ -153,7 +151,6 @@ async def handle_help(message: Message):
     lang = user['language_code']
     await message.answer(TEXTS[lang]["help"])
 
-# --- Callback Handlers ---
 @user_router.callback_query(F.data.startswith("setlang_"))
 async def set_language(cb: CallbackQuery):
     lang = cb.data.split("_")[1]
@@ -197,144 +194,153 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @user_router.message(F.successful_payment)
 async def process_successful_payment(message: Message):
     user_id = message.from_user.id
+    await db.update_user_premium(user_id, True)
+    await db.update_user_coins(user_id, 150)
     user = await db.get_user(user_id)
     lang = user['language_code']
-    await db.update_user_coins(user_id, 150)
-    await db.update_user_premium(user_id, True, datetime.now() + timedelta(days=30))
     await message.answer(TEXTS[lang]["payment_success"])
 
-# --- Voice Message Handler ---
-@user_router.message(F.voice)
-async def handle_voice(message: Message):
-    user = await db.get_user(message.from_user.id)
-    lang = user['language_code']
-    await message.answer(TEXTS[lang]["voice_processing"])
-    try:
-        file_id = message.voice.file_id
-        file = await message.bot.get_file(file_id)
-        file_path = f"voice_{file_id}.ogg"
-        await message.bot.download_file(file.file_path, file_path)
-        text = await transcribe_audio(file_path)
-        os.remove(file_path)
-        if text:
-            await message.answer(f"🎙 <b>Transcription:</b>\n\n{text}", parse_mode="HTML")
-            history = await db.get_chat_history(message.from_user.id)
-            response = await get_chat_response(text, history, character=user.get('current_character', 'default'))
-            await db.save_conversation(message.from_user.id, text, response)
-            await message.answer(response, parse_mode="Markdown")
-        else:
-            await message.answer(TEXTS[lang]["error"])
-    except Exception as e:
-        logger.error(f"Voice Error: {e}")
-        await message.answer(TEXTS[lang]["error"])
-
-# --- State Handlers ---
 @user_router.message(F.photo)
 async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     
-    file = await message.bot.get_file(photo.file_id)
-    file_path = f"face_{message.from_user.id}.jpg"
-    await message.bot.download_file(file.file_path, file_path)
+    # Check if it's a payment screenshot
+    if message.caption and ("pay" in message.caption.lower() or "оплата" in message.caption.lower()):
+        await message.bot.send_photo(
+            ADMIN_ID, 
+            photo.file_id, 
+            caption=f"Payment from {message.from_user.id} (@{message.from_user.username})",
+            reply_markup=admin_payment_confirm_keyboard(message.from_user.id) # Simplified for now
+        )
+        await message.answer("✅ Payment sent for verification.")
+        return
+
+    data = await state.get_data()
+    photo_paths = list(data.get("face_photo_paths") or [])
     
-    await state.update_data(face_photo_path=file_path)
-    await message.answer(TEXTS[lang]["photo_saved"])
+    if len(photo_paths) >= MAX_FACE_PHOTOS:
+        msg = (
+            f"⚠️ Maksimum {MAX_FACE_PHOTOS} ta rasm. Endi promp yozing."
+            if lang == "ru" else
+            f"⚠️ Maximum {MAX_FACE_PHOTOS} photos. Now write the prompt."
+        )
+        await message.answer(msg)
+        return
+        
+    file = await message.bot.get_file(photo.file_id)
+    idx = len(photo_paths) + 1
+    file_path = f"face_{message.from_user.id}_{idx}.jpg"
+    await message.bot.download_file(file.file_path, file_path)
+    photo_paths.append(file_path)
+    
+    await state.update_data(face_photo_paths=photo_paths)
     await state.set_state(UserStates.waiting_for_face_swap_prompt)
+    
+    if lang == "ru":
+        text = (
+            f"✅ Фото {len(photo_paths)}/{MAX_FACE_PHOTOS} сохранено.\n"
+            "Отправьте ещё фото для лучшего распознавания лица "
+            "или напишите описание (промт), либо используйте /make [промт]."
+        )
+    else:
+        text = (
+            f"✅ Photo {len(photo_paths)}/{MAX_FACE_PHOTOS} saved.\n"
+            "Send more photos for better face accuracy, "
+            "or write a description (prompt), or use /make [prompt]."
+        )
+    await message.answer(text)
 
 @user_router.message(Command("make"))
 async def handle_make_command(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
     prompt = message.text.replace("/make", "").strip()
-    
     if not prompt:
         await message.answer("❌ Write prompt after /make")
         return
-        
     data = await state.get_data()
-    photo_path = data.get("face_photo_path")
-    
-    if not photo_path or not os.path.exists(photo_path):
+    photo_paths = [p for p in (data.get("face_photo_paths") or []) if os.path.exists(p)]
+    if not photo_paths:
         await message.answer("❌ First send a photo.")
         return
-        
-    await process_face_swap_logic(message, state, photo_path, prompt)
+    await process_face_swap_logic(message, state, photo_paths, prompt)
 
 @user_router.message(UserStates.waiting_for_face_swap_prompt)
 async def process_face_swap_input(message: Message, state: FSMContext):
-    if message.text and message.text.startswith("/"): return # Let other commands handle it
-    
+    if message.text and message.text.startswith("/"): return
     data = await state.get_data()
-    photo_path = data.get("face_photo_path")
-    await process_face_swap_logic(message, state, photo_path, message.text)
+    photo_paths = [p for p in (data.get("face_photo_paths") or []) if os.path.exists(p)]
+    await process_face_swap_logic(message, state, photo_paths, message.text)
 
-async def process_face_swap_logic(message: Message, state: FSMContext, photo_path: str, prompt: str):
+async def process_face_swap_logic(message: Message, state: FSMContext, photo_paths, prompt: str):
     user = await db.get_user(message.from_user.id)
     lang = user['language_code']
-    
+    if not photo_paths:
+        await message.answer("❌ First send a photo.")
+        return
     if user['coins'] < 10:
         await message.answer(TEXTS[lang]["no_coins"])
         await state.clear()
         return
-        
+    
     await message.answer(TEXTS[lang]["generating_image"])
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_PHOTO)
     
     try:
-        image_url = await edit_image_with_face(photo_path, prompt)
-        if image_url:
-            await message.answer_photo(photo=image_url, caption=f"🎭 InstantID: {prompt[:100]}")
+        image_result = await edit_image_with_face(photo_paths, prompt)
+        if image_result:
+            caption = f"🎭 Nano Banana ({len(photo_paths)} photo(s)): {prompt[:100]}"
+            if isinstance(image_result, (bytes, bytearray)):
+                photo = BufferedInputFile(bytes(image_result), filename="result.png")
+                await message.answer_photo(photo=photo, caption=caption)
+            else:
+                await message.answer_photo(photo=image_result, caption=caption)
             await db.update_user_coins(message.from_user.id, -10)
         else:
-            raise Exception("Image URL is empty")
+            raise Exception("Image generation returned empty result")
     except Exception as e:
         logger.error(f"Error in face swap: {e}")
-        # Detailed error for admin
         if str(message.from_user.id) == str(ADMIN_ID):
             await message.answer(f"❌ Admin Error Info: {str(e)}")
         await message.answer(TEXTS[lang]["image_error"])
     finally:
-        # Keep photo for further /make commands if user wants
+        # Keep photos for further /make commands if user wants
         pass
 
+@user_router.message(F.voice)
+async def handle_voice(message: Message):
+    user = await db.get_user(message.from_user.id)
+    lang = user['language_code']
+    await message.answer(TEXTS[lang]["voice_processing"])
+    
+    file = await message.bot.get_file(message.voice.file_id)
+    file_path = f"voice_{message.from_user.id}.ogg"
+    await message.bot.download_file(file.file_path, file_path)
+    
+    text = await transcribe_audio(file_path)
+    if os.path.exists(file_path): os.remove(file_path)
+    
+    if text:
+        await message.answer(f"🎤: {text}")
+        history = await db.get_chat_history(message.from_user.id)
+        response = await get_chat_response(text, history)
+        await message.answer(response)
+        await db.add_chat_message(message.from_user.id, text, response)
+    else:
+        await message.answer("❌ Could not transcribe audio.")
+
 @user_router.message(F.text)
-async def handle_chat(message: Message, state: FSMContext):
+async def handle_text(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
     if not user: return
     lang = user['language_code']
-    char = user.get('current_character', 'default')
     
-    # Check if text is a menu button
-    all_labels = []
-    for l in MENU_LABELS.values():
-        all_labels.extend(l.values())
+    if message.text in ["🇷🇺 Русский", "🇺🇸 English"]: return
     
-    if message.text in all_labels:
-        for l_lang, labels in MENU_LABELS.items():
-            if message.text == labels["vision"]:
-                return await handle_vision(message, state)
-            if message.text == labels["profile"]:
-                return await handle_profile(message)
-            if message.text == labels["friends"]:
-                return await handle_friends(message)
-            if message.text == labels["vip"]:
-                return await handle_vip(message)
-            if message.text == labels["hype"]:
-                return await handle_hype(message)
-            if message.text == labels["lang"]:
-                return await handle_lang(message)
-            if message.text == labels["help"]:
-                return await handle_help(message)
-        return
-
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
-    try:
-        history = await db.get_chat_history(message.from_user.id)
-        response = await get_chat_response(message.text, history, character=char)
-        await db.save_conversation(message.from_user.id, message.text, response)
-        await message.answer(response, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error in handle_chat: {e}")
-        await message.answer(TEXTS[lang]["error"])
+    history = await db.get_chat_history(message.from_user.id)
+    response = await get_chat_response(message.text, history)
+    await message.answer(response)
+    await db.add_chat_message(message.from_user.id, message.text, response)
