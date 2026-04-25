@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Environment variables
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # OpenAI client
@@ -52,6 +53,39 @@ def _strip_ads(text: str) -> str:
     text = re.sub(r"\n-{3,}\s*$", "", text)
     return text.strip()
 
+async def get_openrouter_response(user_message: str, history: list = None, system_prompt: str = None) -> str:
+    """OpenRouter API orqali javob olish"""
+    if not OPENROUTER_API_KEY:
+        return None
+    
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    messages = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history[-10:])
+    messages.append({"role": "user", "content": user_message})
+    
+    data = {
+        "model": "openai/gpt-4o-mini",
+        "messages": messages
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=data, timeout=30) as resp:
+                if resp.status == 200:
+                    res_json = await resp.json()
+                    return res_json["choices"][0]["message"]["content"]
+                else:
+                    logger.error(f"OpenRouter Error: {resp.status} - {await resp.text()}")
+    except Exception as e:
+        logger.error(f"OpenRouter Exception: {e}")
+    return None
+
 async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
     try:
         if not system_prompt: system_prompt = SYSTEM_PROMPT
@@ -70,6 +104,12 @@ async def get_free_ai_response(prompt: str, system_prompt: str = None) -> str:
 async def get_chat_response(user_message: str, history: list = None, character: str = "default") -> str:
     base_system = CHARACTERS.get(character, SYSTEM_PROMPT)
     
+    # 1. OpenRouter (GPT-4o-mini)
+    response = await get_openrouter_response(user_message, history, base_system)
+    if response:
+        return response
+        
+    # 2. OpenAI (GPT-4o) Fallback
     if client:
         messages = [{"role": "system", "content": base_system}]
         if history:
@@ -86,6 +126,7 @@ async def get_chat_response(user_message: str, history: list = None, character: 
         except Exception as e:
             logger.error(f"OpenAI Error: {e}")
             
+    # 3. Free AI Fallback
     return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
