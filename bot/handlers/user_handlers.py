@@ -49,7 +49,7 @@ TEXTS = {
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
         "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) или используйте /make [промт]:",
         "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{bot_username}?start={id}</code>",
-        "image_error": "❌ Ошибка при создании изображения. Проверьте API ключи в Railway (OPENAI_API_KEY, REPLICATE_API_TOKEN).",
+        "image_error": "❌ Ошибка при создании изображения. Проверьте API ключи в Railway (OPENROUTER_API_KEY).",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity (InstantID)</b>: Just send a photo, then a prompt!",
@@ -73,7 +73,7 @@ TEXTS = {
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
         "photo_saved": "✅ Photo saved! Now write a description (prompt) or use /make [prompt]:",
         "referral_info": "👥 <b>Referral System:</b>\n\nInvite friends and get <b>5 coins</b> for each!\n\n🔗 Your link:\n<code>https://t.me/{bot_username}?start={id}</code>",
-        "image_error": "❌ Error creating image. Please check API keys in Railway (OPENAI_API_KEY, REPLICATE_API_TOKEN).",
+        "image_error": "❌ Error creating image. Please check API keys in Railway (OPENROUTER_API_KEY).",
     }
 }
 
@@ -113,31 +113,35 @@ async def handle_vision(message: Message, state: FSMContext):
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["profile"], MENU_LABELS["en"]["profile"]]))
 async def handle_profile(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     premium_status = "✅" if user['is_premium'] else "❌"
     char_name = user.get('current_character', 'default').replace('_', ' ').title()
     text = TEXTS[lang]["profile"].format(
-        id=user['user_id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
+        id=user['id'], coins=user['coins'], premium=premium_status, refs=user['referrals_count'], char=char_name
     )
     await message.answer(text, parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["friends"], MENU_LABELS["en"]["friends"]]))
 async def handle_friends(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     bot_info = await message.bot.get_me()
-    text = TEXTS[lang]["referral_info"].format(bot_username=bot_info.username, id=user['user_id'])
+    text = TEXTS[lang]["referral_info"].format(bot_username=bot_info.username, id=user['id'])
     await message.answer(text, parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["vip"], MENU_LABELS["en"]["vip"]]))
 async def handle_vip(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     await message.answer(TEXTS[lang]["premium_info"], reply_markup=payment_options_keyboard(lang), parse_mode="HTML")
 
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["hype"], MENU_LABELS["en"]["hype"]]))
 async def handle_hype(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     await message.answer(TEXTS[lang]["hype_prompts"], parse_mode="HTML")
 
@@ -148,6 +152,7 @@ async def handle_lang(message: Message):
 @user_router.message(F.text.in_([MENU_LABELS["ru"]["help"], MENU_LABELS["en"]["help"]]))
 async def handle_help(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     await message.answer(TEXTS[lang]["help"])
 
@@ -161,6 +166,7 @@ async def set_language(cb: CallbackQuery):
 @user_router.callback_query(F.data == "pay_sbp_request")
 async def pay_sbp_request(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
+    if not user: return
     lang = user['language_code']
     payment_id = await db.add_payment(cb.from_user.id, 75, "SBP")
     await cb.bot.send_message(
@@ -174,6 +180,7 @@ async def pay_sbp_request(cb: CallbackQuery):
 @user_router.callback_query(F.data == "pay_stars_1month")
 async def pay_stars_1month(cb: CallbackQuery):
     user = await db.get_user(cb.from_user.id)
+    if not user: return
     lang = user['language_code']
     prices = [LabeledPrice(label="Premium", amount=50)]
     await cb.bot.send_invoice(
@@ -194,7 +201,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @user_router.message(F.successful_payment)
 async def process_successful_payment(message: Message):
     user_id = message.from_user.id
-    await db.update_user_premium(user_id, True)
+    await db.update_user_premium(user_id, True, None)
     await db.update_user_coins(user_id, 150)
     user = await db.get_user(user_id)
     lang = user['language_code']
@@ -204,6 +211,7 @@ async def process_successful_payment(message: Message):
 async def process_vision_image(message: Message, state: FSMContext):
     photo: PhotoSize = message.photo[-1]
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     
     # Check if it's a payment screenshot
@@ -255,6 +263,7 @@ async def process_vision_image(message: Message, state: FSMContext):
 @user_router.message(Command("make"))
 async def handle_make_command(message: Message, state: FSMContext):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     prompt = message.text.replace("/make", "").strip()
     if not prompt:
@@ -276,6 +285,7 @@ async def process_face_swap_input(message: Message, state: FSMContext):
 
 async def process_face_swap_logic(message: Message, state: FSMContext, photo_paths, prompt: str):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     if not photo_paths:
         await message.answer("❌ First send a photo.")
@@ -312,6 +322,7 @@ async def process_face_swap_logic(message: Message, state: FSMContext, photo_pat
 @user_router.message(F.voice)
 async def handle_voice(message: Message):
     user = await db.get_user(message.from_user.id)
+    if not user: return
     lang = user['language_code']
     await message.answer(TEXTS[lang]["voice_processing"])
     
@@ -327,7 +338,7 @@ async def handle_voice(message: Message):
         history = await db.get_chat_history(message.from_user.id)
         response = await get_chat_response(text, history)
         await message.answer(response)
-        await db.add_chat_message(message.from_user.id, text, response)
+        await db.save_conversation(message.from_user.id, text, response)
     else:
         await message.answer("❌ Could not transcribe audio.")
 
@@ -343,4 +354,4 @@ async def handle_text(message: Message, state: FSMContext):
     history = await db.get_chat_history(message.from_user.id)
     response = await get_chat_response(message.text, history)
     await message.answer(response)
-    await db.add_chat_message(message.from_user.id, message.text, response)
+    await db.save_conversation(message.from_user.id, message.text, response)
