@@ -23,9 +23,7 @@ user_router = Router()
 MAX_FACE_PHOTOS = 6
 
 class UserStates(StatesGroup):
-    waiting_for_prompt = State()
     waiting_for_face_swap_prompt = State()
-    waiting_for_payment_confirm = State()
 
 TEXTS = {
     "ru": {
@@ -216,7 +214,8 @@ async def process_vision_image(message: Message, state: FSMContext):
     lang = user['language_code']
     
     # Check if it's a payment screenshot
-    if message.caption and ("pay" in message.caption.lower() or "оплата" in message.caption.lower()):
+    caption_lower = (message.caption or "").lower().strip()
+    if caption_lower in ("pay", "payment", "оплата", "to'lov", "tolov") or caption_lower.startswith(("/pay", "payment ")):
         payment_id = await db.add_payment(message.from_user.id, 75, "SBP_SCREENSHOT")
         await message.bot.send_photo(
             ADMIN_ID,
@@ -334,7 +333,7 @@ async def handle_voice(message: Message):
     await message.answer(TEXTS[lang]["voice_processing"])
     
     file = await message.bot.get_file(message.voice.file_id)
-    file_path = f"voice_{message.from_user.id}.ogg"
+    file_path = f"voice_{message.from_user.id}_{message.voice.file_id}.ogg"
     await message.bot.download_file(file.file_path, file_path)
     
     text = await transcribe_audio(file_path)
@@ -343,8 +342,9 @@ async def handle_voice(message: Message):
     if text:
         await message.answer(f"🎤: {text}")
         history = await db.get_chat_history(message.from_user.id)
-        response = await get_chat_response(text, history)
-        await message.answer(response)
+        char = user.get('current_character', 'default')
+        response = await get_chat_response(text, history, character=char)
+        await message.answer(response, parse_mode=None)
         await db.save_conversation(message.from_user.id, text, response)
     else:
         await message.answer("❌ Could not transcribe audio.")
@@ -359,6 +359,7 @@ async def handle_text(message: Message, state: FSMContext):
     
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
     history = await db.get_chat_history(message.from_user.id)
-    response = await get_chat_response(message.text, history)
-    await message.answer(response)
+    char = user.get('current_character', 'default')
+    response = await get_chat_response(message.text, history, character=char)
+    await message.answer(response, parse_mode=None)
     await db.save_conversation(message.from_user.id, message.text, response)

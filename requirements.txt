@@ -8,3 +8,4 @@ PyMuPDF
 pydub
 duckduckgo-search
 beautifulsoup4
+google-generativeai
