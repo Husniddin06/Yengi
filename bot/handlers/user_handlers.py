@@ -49,6 +49,7 @@ TEXTS = {
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
         "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) или используйте /make [промт]:",
         "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{bot_username}?start={id}</code>",
+        "image_error": "❌ Ошибка при создании изображения. Убедитесь, что у вас есть монеты и API ключи настроены правильно.",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity (InstantID)</b>: Just send a photo, then a prompt!",
@@ -72,6 +73,7 @@ TEXTS = {
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
         "photo_saved": "✅ Photo saved! Now write a description (prompt) or use /make [prompt]:",
         "referral_info": "👥 <b>Referral System:</b>\n\nInvite friends and get <b>5 coins</b> for each!\n\n🔗 Your link:\n<code>https://t.me/{bot_username}?start={id}</code>",
+        "image_error": "❌ Error creating image. Please ensure you have coins and API keys are configured correctly.",
     }
 }
 
@@ -282,16 +284,17 @@ async def process_face_swap_logic(message: Message, state: FSMContext, photo_pat
     
     try:
         image_url = await edit_image_with_face(photo_path, prompt)
-        await message.answer_photo(photo=image_url, caption=f"🎭 InstantID: {prompt[:100]}")
-        await db.update_user_coins(message.from_user.id, -10)
+        if image_url:
+            await message.answer_photo(photo=image_url, caption=f"🎭 InstantID: {prompt[:100]}")
+            await db.update_user_coins(message.from_user.id, -10)
+        else:
+            await message.answer(TEXTS[lang]["image_error"])
     except Exception as e:
         logger.error(f"Error in face swap: {e}")
-        await message.answer(TEXTS[lang]["error"])
+        await message.answer(TEXTS[lang]["image_error"])
     finally:
         # Keep photo for further /make commands if user wants
         pass
-    # We don't clear state here to allow multiple /make commands with same photo
-    # But we can clear it if user sends another photo or starts chat
 
 @user_router.message(F.text)
 async def handle_chat(message: Message, state: FSMContext):

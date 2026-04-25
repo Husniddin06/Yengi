@@ -130,6 +130,11 @@ async def get_chat_response(user_message: str, history: list = None, character: 
     return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
+    """Faqat OpenAI (DALL-E 3) orqali rasm yaratish. Bepul generator olib tashlandi."""
+    if not client:
+        logger.error("OpenAI client not initialized. Cannot generate image.")
+        return None
+
     final_prompt = prompt
     if style == "banana":
         final_prompt = (
@@ -138,15 +143,17 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
             "Vibrant colors, studio lighting, 8k resolution, trending on social media."
         )
     try:
-        if client:
-            response = await client.images.generate(
-                model="dall-e-3", prompt=final_prompt, n=1, size="1024x1024", quality="hd" if style == "banana" else "standard"
-            )
-            return response.data[0].url
+        response = await client.images.generate(
+            model="dall-e-3", 
+            prompt=final_prompt, 
+            n=1, 
+            size="1024x1024", 
+            quality="hd" if style == "banana" else "standard"
+        )
+        return response.data[0].url
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
-    encoded = urllib.parse.quote(final_prompt)
-    return f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(4).hex()}"
+        return None
 
 async def edit_image_with_face(image_path: str, prompt: str) -> str:
     """Replicate InstantID orqali yuzni 100% saqlab qolgan holda rasmga ishlov berish"""
@@ -204,7 +211,7 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
 async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
     try:
         if not client:
-            return await generate_image(prompt, style="banana")
+            return None
         with open(image_path, "rb") as img:
             response = await client.images.edit(
                 model="dall-e-2",
@@ -216,7 +223,7 @@ async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
             return response.data[0].url
     except Exception as e:
         logger.error(f"OpenAI Edit Fallback Error: {e}")
-        return await generate_image(prompt, style="banana")
+        return None
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
