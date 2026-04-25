@@ -77,6 +77,20 @@ async def admin_confirm_payment(cb: CallbackQuery):
         await cb.message.edit_text("❌ Error confirming payment.")
     await cb.answer()
 
+@admin_router.callback_query(F.data.startswith("admin_reject_pay_"))
+async def admin_reject_payment(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id): return
+    payment_id = int(cb.data.split("_")[3])
+    
+    import aiosqlite
+    from bot.database.db import DATABASE_NAME
+    async with aiosqlite.connect(DATABASE_NAME) as conn:
+        await conn.execute('UPDATE payments SET status = "rejected" WHERE id = ?', (payment_id,))
+        await conn.commit()
+    
+    await cb.message.edit_text(f"❌ Payment {payment_id} rejected.")
+    await cb.answer()
+
 @admin_router.callback_query(F.data == "admin_add_task")
 async def admin_add_task(cb: CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return

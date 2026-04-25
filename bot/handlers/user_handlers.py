@@ -1,19 +1,18 @@
 import os
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, ContentType, BufferedInputFile
-from aiogram.filters import Command, StateFilter, CommandStart
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, BufferedInputFile
+from aiogram.filters import Command, CommandStart
 from datetime import datetime, timedelta
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ChatAction
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, generate_image, edit_image_with_face, analyze_image_and_chat, transcribe_audio
+from bot.utils.openai_utils import get_chat_response, edit_image_with_face, transcribe_audio
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
-    tasks_keyboard, admin_payment_confirm_keyboard, characters_keyboard,
-    MENU_LABELS
+    admin_payment_confirm_keyboard, MENU_LABELS
 )
 from bot.config import ADMIN_ID
 
