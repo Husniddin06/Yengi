@@ -28,9 +28,12 @@ async def get_chat_response(message_text, history, character="default"):
     system_prompt = system_prompts.get(character, system_prompts["default"])
     
     messages = [{"role": "system", "content": system_prompt}]
-    for h in history[-10:]:
-        messages.append({"role": "user", "content": h['user_message']})
-        messages.append({"role": "assistant", "content": h['bot_message']})
+    for h in history[-20:]:
+        # db.get_chat_history returns {"role": "user"|"assistant", "content": "..."}
+        role = h.get("role") or "user"
+        content = h.get("content") or h.get("user_message") or h.get("bot_message") or ""
+        if content:
+            messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message_text})
 
     if api_key:

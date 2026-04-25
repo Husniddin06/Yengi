@@ -3,6 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, PhotoSize, ContentType, BufferedInputFile
 from aiogram.filters import Command, StateFilter, CommandStart
+from datetime import datetime, timedelta
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ChatAction
@@ -201,7 +202,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @user_router.message(F.successful_payment)
 async def process_successful_payment(message: Message):
     user_id = message.from_user.id
-    await db.update_user_premium(user_id, True, None)
+    await db.update_user_premium(user_id, True, datetime.now() + timedelta(days=30))
     await db.update_user_coins(user_id, 150)
     user = await db.get_user(user_id)
     lang = user['language_code']
@@ -216,11 +217,17 @@ async def process_vision_image(message: Message, state: FSMContext):
     
     # Check if it's a payment screenshot
     if message.caption and ("pay" in message.caption.lower() or "оплата" in message.caption.lower()):
+        payment_id = await db.add_payment(message.from_user.id, 75, "SBP_SCREENSHOT")
         await message.bot.send_photo(
-            ADMIN_ID, 
-            photo.file_id, 
-            caption=f"Payment from {message.from_user.id} (@{message.from_user.username})",
-            reply_markup=admin_payment_confirm_keyboard(message.from_user.id) # Simplified for now
+            ADMIN_ID,
+            photo.file_id,
+            caption=(
+                f"💳 <b>Payment screenshot</b>\n"
+                f"User: @{message.from_user.username} (ID: {message.from_user.id})\n"
+                f"Amount: 75₽"
+            ),
+            reply_markup=admin_payment_confirm_keyboard(payment_id),
+            parse_mode="HTML",
         )
         await message.answer("✅ Payment sent for verification.")
         return
