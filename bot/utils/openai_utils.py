@@ -130,10 +130,9 @@ async def get_chat_response(user_message: str, history: list = None, character: 
     return await get_free_ai_response(user_message, base_system)
 
 async def generate_image(prompt: str, style: str = "standard") -> str:
-    """Faqat OpenAI (DALL-E 3) orqali rasm yaratish. Bepul generator olib tashlandi."""
+    """Faqat OpenAI (DALL-E 3) orqali rasm yaratish."""
     if not client:
-        logger.error("OpenAI client not initialized. Cannot generate image.")
-        return None
+        raise Exception("OPENAI_API_KEY is missing or invalid.")
 
     final_prompt = prompt
     if style == "banana":
@@ -153,14 +152,15 @@ async def generate_image(prompt: str, style: str = "standard") -> str:
         return response.data[0].url
     except Exception as e:
         logger.error(f"DALL-E Error: {e}")
-        return None
+        raise e
 
 async def edit_image_with_face(image_path: str, prompt: str) -> str:
     """Replicate InstantID orqali yuzni 100% saqlab qolgan holda rasmga ishlov berish"""
-    try:
-        if not REPLICATE_API_TOKEN:
-            return await _edit_image_openai_fallback(image_path, prompt)
+    if not REPLICATE_API_TOKEN:
+        logger.warning("REPLICATE_API_TOKEN is missing. Falling back to OpenAI Edit.")
+        return await _edit_image_openai_fallback(image_path, prompt)
             
+    try:
         async with aiohttp.ClientSession() as session:
             # InstantID model (fofr/instant-id)
             model_version = "ef70dcee6604870795493069004084394073380f089600984869766440263692"
@@ -209,9 +209,9 @@ async def edit_image_with_face(image_path: str, prompt: str) -> str:
         return await _edit_image_openai_fallback(image_path, prompt)
 
 async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
+    if not client:
+        raise Exception("Both REPLICATE_API_TOKEN and OPENAI_API_KEY are missing.")
     try:
-        if not client:
-            return None
         with open(image_path, "rb") as img:
             response = await client.images.edit(
                 model="dall-e-2",
@@ -223,7 +223,7 @@ async def _edit_image_openai_fallback(image_path: str, prompt: str) -> str:
             return response.data[0].url
     except Exception as e:
         logger.error(f"OpenAI Edit Fallback Error: {e}")
-        return None
+        raise e
 
 async def analyze_image_and_chat(prompt: str, image_bytes: bytes) -> str:
     try:
