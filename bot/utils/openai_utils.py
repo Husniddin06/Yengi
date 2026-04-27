@@ -2,11 +2,12 @@ import os
 import base64
 import logging
 import aiohttp
+import replicate
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# Load keys from environment variables (Railway)
+# Load keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -29,7 +30,6 @@ async def get_chat_response(message_text, history, character="default"):
     
     messages = [{"role": "system", "content": system_prompt}]
     for h in history[-20:]:
-        # db.get_chat_history returns {"role": "user"|"assistant", "content": "..."}
         role = h.get("role") or "user"
         content = h.get("content") or h.get("user_message") or h.get("bot_message") or ""
         if content:
@@ -70,156 +70,74 @@ async def get_chat_response(message_text, history, character="default"):
         except Exception as e:
             logger.error(f"OpenAI Fallback Error: {e}")
     
-    return "⚠️ System is busy. Please check API keys in Railway."
+    return "⚠️ System is busy. Please check API keys."
 
 async def generate_image(prompt):
-    """Generate image from text prompt via OpenRouter (Gemini 2.5 Flash Image / Nano Banana).
-    Returns raw image bytes on success, or None on failure.
+    """Generate image from text prompt via Replicate (Flux Schnell).
+    Returns image URL on success, or None on failure.
     """
-    if not OPENROUTER_API_KEY:
-        logger.error("OPENROUTER_API_KEY is missing for image generation")
+    if not REPLICATE_API_TOKEN:
+        logger.error("REPLICATE_API_TOKEN is missing")
         return None
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    data = {
-        "model": "google/gemini-2.5-flash-image",
-        "modalities": ["image", "text"],
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Generate a high-quality, viral, ultra-realistic image. "
-                            "Subject: " + (prompt or "")
-                        ),
-                    }
-                ],
-            }
-        ],
-    }
+    
     try:
-        timeout = aiohttp.ClientTimeout(total=180)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=data,
-            ) as resp:
-                if resp.status != 200:
-                    logger.error(
-                        f"OpenRouter image gen error {resp.status}: {await resp.text()}"
-                    )
-                    return None
-                result = await resp.json()
-                msg = result.get("choices", [{}])[0].get("message", {}) or {}
-                images = msg.get("images") or []
-                if images:
-                    url = images[0].get("image_url", {}).get("url", "")
-                    if url.startswith("data:"):
-                        try:
-                            return base64.b64decode(url.split(",", 1)[1])
-                        except Exception as e:
-                            logger.error(f"Failed to decode image data URL: {e}")
-                            return None
-                    if url:
-                        return url
-                logger.error(f"OpenRouter returned no images: {result}")
-                return None
+        # Using Flux Schnell on Replicate
+        output = await replicate.async_run(
+            "black-forest-labs/flux-schnell",
+            input={"prompt": prompt}
+        )
+        if output and len(output) > 0:
+            return output[0] # Returns the URL of the generated image
+        return None
     except Exception as e:
-        logger.error(f"OpenRouter image gen exception: {e}")
+        logger.error(f"Replicate image gen exception: {e}")
         return None
 
 async def edit_image_with_face(image_paths, prompt):
-    """Image(s) + prompt -> image via OpenRouter (Gemini 2.5 Flash Image / Nano Banana).
-    `image_paths` may be a single path string or a list of paths (up to 6). Multiple
-    reference photos help the model lock in the person's identity / face.
-    Returns raw image bytes on success, or None on failure.
+    """Image(s) + prompt -> image via Replicate (InstantID).
+    Returns image URL on success, or None on failure.
     """
-    if not OPENROUTER_API_KEY:
-        logger.error("OPENROUTER_API_KEY is missing for image editing")
+    if not REPLICATE_API_TOKEN:
+        logger.error("REPLICATE_API_TOKEN is missing")
         return None
+    
     if isinstance(image_paths, (str, bytes)):
         image_paths = [image_paths]
-    image_paths = [p for p in (image_paths or []) if p]
+    
+    image_paths = [p for p in (image_paths or []) if os.path.exists(p)]
     if not image_paths:
-        logger.error("No input images provided")
+        logger.error("No valid input images provided")
         return None
-    image_paths = image_paths[:6]
-    image_parts = []
-    for p in image_paths:
-        try:
-            with open(p, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-            image_parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-            })
-        except Exception as e:
-            logger.error(f"Failed to read input image {p}: {e}")
-    if not image_parts:
-        return None
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    intro = (
-        f"You are given {len(image_parts)} reference photo(s) of the same person. "
-        "Use ALL of them together to lock in the person's identity, face shape, "
-        "and features as accurately as possible. Generate a NEW image where the "
-        "person's face stays clearly recognizable. Apply this transformation: "
-        + (prompt or "")
-    )
-    data = {
-        "model": "google/gemini-2.5-flash-image",
-        "modalities": ["image", "text"],
-        "messages": [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": intro}] + image_parts,
-            }
-        ],
-    }
+
     try:
-        timeout = aiohttp.ClientTimeout(total=180)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=data,
-            ) as resp:
-                if resp.status != 200:
-                    logger.error(
-                        f"OpenRouter image edit error {resp.status}: {await resp.text()}"
-                    )
-                    return None
-                result = await resp.json()
-                msg = result.get("choices", [{}])[0].get("message", {}) or {}
-                images = msg.get("images") or []
-                if images:
-                    url = images[0].get("image_url", {}).get("url", "")
-                    if url.startswith("data:"):
-                        try:
-                            return base64.b64decode(url.split(",", 1)[1])
-                        except Exception as e:
-                            logger.error(f"Failed to decode image data URL: {e}")
-                            return None
-                    if url:
-                        return url
-                logger.error(f"OpenRouter returned no images: {result}")
-                return None
+        # Using InstantID on Replicate
+        # Note: This is a common implementation, model name might vary
+        with open(image_paths[0], "rb") as f:
+            output = await replicate.async_run(
+                "lucataco/instantid:15a0e92730055099f0619885890938686d634939230800608c769666b44994d7",
+                input={
+                    "image": f,
+                    "prompt": prompt,
+                    "negative_prompt": "(lowres, low quality, worst quality:1.2), (text:1.2), watermark, painting, drawing, illustration, glitch, deformed, mutated, cross-eyed, ugly, disfigured",
+                    "scheduler": "EulerDiscreteScheduler",
+                    "num_inference_steps": 30,
+                    "guidance_scale": 5,
+                    "adapter_strength_ratio": 0.8,
+                    "identity_net_strength_ratio": 0.8
+                }
+            )
+            if output and len(output) > 0:
+                return output[0]
+            return None
     except Exception as e:
-        logger.error(f"OpenRouter image edit exception: {e}")
+        logger.error(f"Replicate InstantID exception: {e}")
         return None
 
 async def analyze_image_and_chat(image_path, prompt):
     """Analyze image using GPT-4o Vision via OpenRouter"""
     api_key = OPENROUTER_API_KEY or OPENAI_API_KEY
     if not api_key: return "❌ API key missing."
-    import base64
+    
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
     try:

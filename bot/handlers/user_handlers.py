@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ChatAction
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, edit_image_with_face, transcribe_audio
+from bot.utils.openai_utils import get_chat_response, edit_image_with_face, transcribe_audio, generate_image
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
     admin_payment_confirm_keyboard, MENU_LABELS
@@ -306,7 +306,7 @@ async def process_face_swap_logic(message: Message, state: FSMContext, photo_pat
     try:
         image_result = await edit_image_with_face(photo_paths, prompt)
         if image_result:
-            caption = f"🎭 Nano Banana ({len(photo_paths)} photo(s)): {prompt[:100]}"
+            caption = f"🎨 Generated via Replicate: {prompt[:100]}"
             if isinstance(image_result, (bytes, bytearray)):
                 photo = BufferedInputFile(bytes(image_result), filename="result.png")
                 await message.answer_photo(photo=photo, caption=caption)
