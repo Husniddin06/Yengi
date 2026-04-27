@@ -83,9 +83,9 @@ async def generate_image(prompt):
         return None
     
     try:
-        # Using Flux 1.2 Pro - The latest and most advanced model
+        # Using Flux 2 Pro - The latest and most advanced model from Black Forest Labs
         output = await replicate.async_run(
-            "black-forest-labs/flux-1.2-pro",
+            "black-forest-labs/flux-2-pro",
             input={
                 "prompt": prompt,
                 "aspect_ratio": "1:1",
@@ -97,7 +97,7 @@ async def generate_image(prompt):
             return str(output)
         return None
     except Exception as e:
-        logger.error(f"Replicate Flux 1.2 Pro exception: {e}")
+        logger.error(f"Replicate Flux 2 Pro exception: {e}")
         return None
 
 async def edit_image_with_face(image_paths, prompt):
