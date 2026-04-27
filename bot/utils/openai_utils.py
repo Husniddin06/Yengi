@@ -16,8 +16,9 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY or OPENROUTER_API_KEY or "dummy_key")
 
 async def get_chat_response(message_text, history, character="default"):
-    """Get response from OpenRouter (Primary) or OpenAI (Fallback)"""
-    api_key = OPENROUTER_API_KEY or OPENAI_API_KEY
+    """Get response from OpenAI GPT-4o (Primary) or OpenRouter (Fallback)"""
+    # Prefer direct OpenAI GPT-4o for best quality
+    api_key = OPENAI_API_KEY or OPENROUTER_API_KEY
     
     system_prompts = {
         "default": "You are a premium AI assistant like ChatGPT. Speak naturally, give detailed and smart answers. Support English, Russian, and Uzbek.",
@@ -36,15 +37,28 @@ async def get_chat_response(message_text, history, character="default"):
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message_text})
 
-    if api_key:
+    # Try OpenAI Direct first
+    if OPENAI_API_KEY:
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                temperature=0.8
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenAI Direct Error: {e}")
+
+    # Fallback to OpenRouter
+    if OPENROUTER_API_KEY:
         try:
             async with aiohttp.ClientSession() as session:
                 headers = {
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                     "Content-Type": "application/json"
                 }
                 data = {
-                    "model": "openai/gpt-4o-mini",
+                    "model": "openai/gpt-4o",
                     "messages": messages,
                     "temperature": 0.8,
                     "max_tokens": 1000
@@ -56,24 +70,12 @@ async def get_chat_response(message_text, history, character="default"):
                     else:
                         logger.error(f"OpenRouter Error: {await resp.text()}")
         except Exception as e:
-            logger.error(f"Chat Error: {e}")
-
-    # Fallback to OpenAI
-    if OPENAI_API_KEY:
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.8
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"OpenAI Fallback Error: {e}")
+            logger.error(f"OpenRouter Fallback Error: {e}")
     
     return "⚠️ System is busy. Please check API keys."
 
 async def generate_image(prompt):
-    """Generate image from text prompt via Replicate (Flux 1.1 Pro).
+    """Generate image from text prompt via Replicate (Flux 1.2 Pro).
     Returns image URL on success, or None on failure.
     """
     if not REPLICATE_API_TOKEN:
@@ -81,9 +83,9 @@ async def generate_image(prompt):
         return None
     
     try:
-        # Using Flux 1.1 Pro - One of the best models currently available
+        # Using Flux 1.2 Pro - The latest and most advanced model
         output = await replicate.async_run(
-            "black-forest-labs/flux-1.1-pro",
+            "black-forest-labs/flux-1.2-pro",
             input={
                 "prompt": prompt,
                 "aspect_ratio": "1:1",
@@ -92,11 +94,10 @@ async def generate_image(prompt):
             }
         )
         if output:
-            # Flux 1.1 Pro usually returns a single URL string or a File object
             return str(output)
         return None
     except Exception as e:
-        logger.error(f"Replicate image gen exception: {e}")
+        logger.error(f"Replicate Flux 1.2 Pro exception: {e}")
         return None
 
 async def edit_image_with_face(image_paths, prompt):
@@ -139,34 +140,25 @@ async def edit_image_with_face(image_paths, prompt):
         return None
 
 async def analyze_image_and_chat(image_path, prompt):
-    """Analyze image using GPT-4o Vision via OpenRouter"""
-    api_key = OPENROUTER_API_KEY or OPENAI_API_KEY
-    if not api_key: return "❌ API key missing."
+    """Analyze image using GPT-4o Vision"""
+    if not OPENAI_API_KEY: return "❌ OpenAI API key missing."
     
     with open(image_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
     try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            data = {
-                "model": "openai/gpt-4o-mini",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }
-                ]
-            }
-            async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return result['choices'][0]['message']['content']
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }
+            ]
+        )
+        return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Vision Error: {e}")
         return "❌ Error analyzing image."
