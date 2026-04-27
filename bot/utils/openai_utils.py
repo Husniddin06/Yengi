@@ -17,7 +17,6 @@ client = OpenAI(api_key=OPENAI_API_KEY or OPENROUTER_API_KEY or "dummy_key")
 
 async def get_chat_response(message_text, history, character="default"):
     """Get response from OpenAI GPT-4o (Primary) or OpenRouter (Fallback)"""
-    # Prefer direct OpenAI GPT-4o for best quality
     api_key = OPENAI_API_KEY or OPENROUTER_API_KEY
     
     system_prompts = {
@@ -37,7 +36,6 @@ async def get_chat_response(message_text, history, character="default"):
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message_text})
 
-    # Try OpenAI Direct first
     if OPENAI_API_KEY:
         try:
             response = client.chat.completions.create(
@@ -49,7 +47,6 @@ async def get_chat_response(message_text, history, character="default"):
         except Exception as e:
             logger.error(f"OpenAI Direct Error: {e}")
 
-    # Fallback to OpenRouter
     if OPENROUTER_API_KEY:
         try:
             async with aiohttp.ClientSession() as session:
@@ -75,7 +72,7 @@ async def get_chat_response(message_text, history, character="default"):
     return "⚠️ System is busy. Please check API keys."
 
 async def generate_image(prompt):
-    """Generate image from text prompt via Replicate (Flux 1.2 Pro).
+    """Generate image from text prompt via Replicate (Flux 1.1 Pro).
     Returns image URL on success, or None on failure.
     """
     if not REPLICATE_API_TOKEN:
@@ -83,9 +80,9 @@ async def generate_image(prompt):
         return None
     
     try:
-        # Using Flux 2 Pro - The latest and most advanced model from Black Forest Labs
+        # Using Flux 1.1 Pro - Reliable and high quality
         output = await replicate.async_run(
-            "black-forest-labs/flux-2-pro",
+            "black-forest-labs/flux-1.1-pro",
             input={
                 "prompt": prompt,
                 "aspect_ratio": "1:1",
@@ -97,11 +94,11 @@ async def generate_image(prompt):
             return str(output)
         return None
     except Exception as e:
-        logger.error(f"Replicate Flux 2 Pro exception: {e}")
+        logger.error(f"Replicate Flux 1.1 Pro exception: {e}")
         return None
 
 async def edit_image_with_face(image_paths, prompt):
-    """Image(s) + prompt -> image via Replicate (InstantID).
+    """Image + prompt -> image via Replicate (InstantID).
     Returns image URL on success, or None on failure.
     """
     if not REPLICATE_API_TOKEN:
@@ -117,7 +114,7 @@ async def edit_image_with_face(image_paths, prompt):
         return None
 
     try:
-        # Using InstantID on Replicate
+        # Using InstantID on Replicate - Best with single reference image
         with open(image_paths[0], "rb") as f:
             output = await replicate.async_run(
                 "lucataco/instantid:15a0e92730055099f0619885890938686d634939230800608c769666b44994d7",

@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ChatAction
 
 from bot.database import db
-from bot.utils.openai_utils import get_chat_response, edit_image_with_face, transcribe_audio, generate_image
+from bot.utils.openai_utils import get_chat_response, edit_image_with_face, transcribe_audio
 from bot.utils.keyboards import (
     main_reply_menu, lang_keyboard, payment_options_keyboard,
     admin_payment_confirm_keyboard, MENU_LABELS
@@ -19,7 +19,8 @@ from bot.config import ADMIN_ID
 logger = logging.getLogger(__name__)
 user_router = Router()
 
-MAX_FACE_PHOTOS = 6
+# InstantID works best with 1 reference photo
+MAX_FACE_PHOTOS = 1
 
 class UserStates(StatesGroup):
     waiting_for_face_swap_prompt = State()
@@ -35,7 +36,7 @@ TEXTS = {
         "generating_image": "🎨 Генерирую изображение (InstantID), пожалуйста подождите 20-40 сек...",
         "error": "❌ Произошла ошибка. Попробуйте позже.",
         "no_coins": "❌ У вас недостаточно монет (нужно 10). Выполните задания или купите Premium.",
-        "sbp_request_sent": "💳 Запрос на оплату через СБП отправлен админу. После перевода 75₽ на карту, админ подтвердит платеж и вам придет 150 монет.",
+        "sbp_request_sent": "💳 <b>Оплата через СБП:</b>\n\nДля пополнения баланса на 150 монет, переведите <b>75₽</b> по ссылке ниже:\n\n🔗 <a href='https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79990402614&bankCode=100000000111'>Оплатить через Сбербанк</a>\n\nПосле оплаты отправьте скриншот чека боту.",
         "tasks_title": "🎁 <b>Задания:</b>\nВыполняйте задания и получайте монеты!",
         "tiktok_msg": "📱 <b>TikTok Режим:</b>\nДля прослушивания и скачивания музыки из TikTok используйте наш партнерский бот: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Хайп Промты для AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nСкопируйте и используйте в Nano Banana!",
@@ -45,9 +46,9 @@ TEXTS = {
         "stars_title": "Premium + 150 монет",
         "stars_desc": "Активация Premium и начисление 150 монет.",
         "payment_success": "✅ Оплата прошла успешно! Вам начислено 150 монет и активирован Premium.",
-        "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) или используйте /make [промт]:",
+        "photo_saved": "✅ Фото сохранено! Теперь напишите описание (промт) yoki /make [промт]:",
         "referral_info": "👥 <b>Реферальная система:</b>\n\nПриглашайте друзей и получайте <b>5 монет</b> за каждого!\n\n🔗 Ваша ссылка:\n<code>https://t.me/{bot_username}?start={id}</code>",
-        "image_error": "❌ Ошибка при создании изображения. Проверьте API ключи в Railway (OPENROUTER_API_KEY).",
+        "image_error": "❌ Ошибка при создании изображения. Проверьте API ключи в Railway (REPLICATE_API_TOKEN).",
     },
     "en": {
         "welcome": "👋 Hello! I am your <b>MAX AI</b> assistant.\n\n🚀 <b>What I can do:</b>\n— Smart Web Search (news, prices).\n👁 Photo analysis and prompt creation.\n🎨 Nano Banana Trend (DALL-E 3).\n🎙 Voice-to-Text conversion.\n🎭 <b>Face Identity (InstantID)</b>: Just send a photo, then a prompt!",
@@ -59,7 +60,7 @@ TEXTS = {
         "generating_image": "🎨 Generating image (InstantID), please wait 20-40 sec...",
         "error": "❌ An error occurred. Please try again later.",
         "no_coins": "❌ You don't have enough coins (need 10). Complete tasks or buy Premium.",
-        "sbp_request_sent": "💳 SBP payment request sent to admin. After transferring 75₽, admin will confirm and you will receive 150 coins.",
+        "sbp_request_sent": "💳 <b>SBP Payment:</b>\n\nTo add 150 coins to your balance, transfer <b>75₽</b> using the link below:\n\n🔗 <a href='https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79990402614&bankCode=100000000111'>Pay via Sberbank</a>\n\nAfter payment, send a screenshot of the receipt to the bot.",
         "tasks_title": "🎁 <b>Tasks:</b>\nComplete tasks and get coins!",
         "tiktok_msg": "📱 <b>TikTok Mode:</b>\nTo listen and download music from TikTok, use our partner bot: @VkMuzicXbot",
         "hype_prompts": "🔥 <b>Hype Prompts for AI:</b>\n\n1. <code>Ultra-realistic cinematic night portrait of a cybernetic banana in Tokyo</code>\n2. <code>Funny banana minion style character as a CEO of a tech company</code>\n3. <code>3D render of a banana house in a tropical forest, 8k resolution</code>\n4. <code>Vintage oil painting of a banana philosopher thinking about life</code>\n\nCopy and use in Nano Banana!",
@@ -71,7 +72,7 @@ TEXTS = {
         "payment_success": "✅ Payment successful! 150 coins added and Premium activated.",
         "photo_saved": "✅ Photo saved! Now write a description (prompt) or use /make [prompt]:",
         "referral_info": "👥 <b>Referral System:</b>\n\nInvite friends and get <b>5 coins</b> for each!\n\n🔗 Your link:\n<code>https://t.me/{bot_username}?start={id}</code>",
-        "image_error": "❌ Error creating image. Please check API keys in Railway (OPENROUTER_API_KEY).",
+        "image_error": "❌ Error creating image. Please check API keys in Railway (REPLICATE_API_TOKEN).",
     }
 }
 
@@ -172,7 +173,7 @@ async def pay_sbp_request(cb: CallbackQuery):
         f"💳 <b>New SBP Payment Request</b>\nUser: {cb.from_user.username} (ID: {cb.from_user.id})\nAmount: 75₽\n\nUse /admin to confirm.",
         reply_markup=admin_payment_confirm_keyboard(payment_id)
     )
-    await cb.message.answer(TEXTS[lang]["sbp_request_sent"])
+    await cb.message.answer(TEXTS[lang]["sbp_request_sent"], parse_mode="HTML", disable_web_page_preview=True)
     await cb.answer()
 
 @user_router.callback_query(F.data == "pay_stars_1month")
@@ -233,11 +234,12 @@ async def process_vision_image(message: Message, state: FSMContext):
     data = await state.get_data()
     photo_paths = list(data.get("face_photo_paths") or [])
     
+    # InstantID works best with 1 reference photo
     if len(photo_paths) >= MAX_FACE_PHOTOS:
         msg = (
-            f"⚠️ Maksimum {MAX_FACE_PHOTOS} ta rasm. Endi promp yozing."
+            f"⚠️ Maksimum {MAX_FACE_PHOTOS} ta rasm qabul qilinadi. Endi promp yozing."
             if lang == "ru" else
-            f"⚠️ Maximum {MAX_FACE_PHOTOS} photos. Now write the prompt."
+            f"⚠️ Maximum {MAX_FACE_PHOTOS} photo accepted. Now write the prompt."
         )
         await message.answer(msg)
         return
@@ -253,15 +255,13 @@ async def process_vision_image(message: Message, state: FSMContext):
     
     if lang == "ru":
         text = (
-            f"✅ Фото {len(photo_paths)}/{MAX_FACE_PHOTOS} сохранено.\n"
-            "Отправьте ещё фото для лучшего распознавания лица "
-            "или напишите описание (промт), либо используйте /make [промт]."
+            f"✅ Фото сохранено.\n"
+            "Теперь напишите описание (промт) или используйте /make [промт]."
         )
     else:
         text = (
-            f"✅ Photo {len(photo_paths)}/{MAX_FACE_PHOTOS} saved.\n"
-            "Send more photos for better face accuracy, "
-            "or write a description (prompt), or use /make [prompt]."
+            f"✅ Photo saved.\n"
+            "Now write a description (prompt) or use /make [prompt]."
         )
     await message.answer(text)
 
@@ -306,7 +306,7 @@ async def process_face_swap_logic(message: Message, state: FSMContext, photo_pat
     try:
         image_result = await edit_image_with_face(photo_paths, prompt)
         if image_result:
-            caption = f"🎨 Generated via Replicate: {prompt[:100]}"
+            caption = f"🎭 AI Art: {prompt[:100]}"
             if isinstance(image_result, (bytes, bytearray)):
                 photo = BufferedInputFile(bytes(image_result), filename="result.png")
                 await message.answer_photo(photo=photo, caption=caption)
@@ -321,8 +321,12 @@ async def process_face_swap_logic(message: Message, state: FSMContext, photo_pat
             await message.answer(f"❌ Admin Error Info: {str(e)}")
         await message.answer(TEXTS[lang]["image_error"])
     finally:
-        # Keep photos for further /make commands if user wants
-        pass
+        # Clean up disk - remove temporary face photos
+        for p in photo_paths:
+            try:
+                if os.path.exists(p): os.remove(p)
+            except: pass
+        await state.update_data(face_photo_paths=[])
 
 @user_router.message(F.voice)
 async def handle_voice(message: Message):
