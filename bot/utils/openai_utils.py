@@ -73,7 +73,7 @@ async def get_chat_response(message_text, history, character="default"):
     return "⚠️ System is busy. Please check API keys."
 
 async def generate_image(prompt):
-    """Generate image from text prompt via Replicate (Flux Schnell).
+    """Generate image from text prompt via Replicate (Flux 1.1 Pro).
     Returns image URL on success, or None on failure.
     """
     if not REPLICATE_API_TOKEN:
@@ -81,13 +81,19 @@ async def generate_image(prompt):
         return None
     
     try:
-        # Using Flux Schnell on Replicate
+        # Using Flux 1.1 Pro - One of the best models currently available
         output = await replicate.async_run(
-            "black-forest-labs/flux-schnell",
-            input={"prompt": prompt}
+            "black-forest-labs/flux-1.1-pro",
+            input={
+                "prompt": prompt,
+                "aspect_ratio": "1:1",
+                "output_format": "jpg",
+                "output_quality": 95
+            }
         )
-        if output and len(output) > 0:
-            return output[0] # Returns the URL of the generated image
+        if output:
+            # Flux 1.1 Pro usually returns a single URL string or a File object
+            return str(output)
         return None
     except Exception as e:
         logger.error(f"Replicate image gen exception: {e}")
@@ -111,7 +117,6 @@ async def edit_image_with_face(image_paths, prompt):
 
     try:
         # Using InstantID on Replicate
-        # Note: This is a common implementation, model name might vary
         with open(image_paths[0], "rb") as f:
             output = await replicate.async_run(
                 "lucataco/instantid:15a0e92730055099f0619885890938686d634939230800608c769666b44994d7",
